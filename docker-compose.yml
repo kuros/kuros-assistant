@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: kuros-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kuros_manager
+      POSTGRES_USER: kuros
+      POSTGRES_PASSWORD: kuros
+    ports:
+      - "5432:5432"
+    volumes:
+      - kuros-db-data:/var/lib/postgresql/data
+
+volumes:
+  kuros-db-data:
