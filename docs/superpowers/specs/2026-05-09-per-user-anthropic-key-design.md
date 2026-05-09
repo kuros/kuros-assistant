@@ -106,6 +106,35 @@ Remove from `env.schema.ts` and `.env.example`:
 - `CLAUDE_MODEL_FAST`
 - `CLAUDE_MODEL_DEEP`
 
+## UI
+
+### New page: `/settings/ai`
+
+A new **AI Settings** page added to the Settings nav group alongside the existing Profile page. Follows the same layout pattern as `ProfilePage`: centered container (max-width 520px), MUI components, react-hook-form + Zod, success Snackbar.
+
+**Fields:**
+
+- **Anthropic API Key** — `TextField` with `type="password"` and a show/hide toggle `IconButton`. When `hasAnthropicKey` is true, shows a masked placeholder (`sk-ant-••••••••`) so the user knows a key is stored. Clearing the field and saving has no effect — to replace a key the user types a new one. `@IsString() @MinLength(1)` validation only fires if the field is non-empty (key is optional on update).
+- **Fast model** — `TextField` (free text) labelled "Fast model", pre-filled with the effective value from `GET /api/me/settings`.
+- **Deep model** — `TextField` (free text) labelled "Deep model", same pattern.
+
+On submit, calls `PATCH /api/me/settings` with only the changed fields (skip `anthropicApiKey` if the field is empty). Shows success Snackbar on save; inline Alert on error.
+
+### Nav
+
+Add one entry to the "Settings" group in `nav-config.ts`:
+
+```
+{ label: 'AI', path: '/settings/ai', icon: SmartToyOutlined }
+```
+
+### New hooks: `api/hooks/settings.ts`
+
+```ts
+useUserSettings()       // GET /api/me/settings, queryKey ['me', 'settings'], 30s staleTime
+useUpdateUserSettings() // PATCH /api/me/settings, invalidates ['me', 'settings'] on success
+```
+
 ## File Inventory
 
 | File | Change |
@@ -126,3 +155,7 @@ Remove from `env.schema.ts` and `.env.example`:
 | `apps/backend/src/connectors/post-summary.pipeline.ts` | Pass userId to ClaudeService calls |
 | `apps/backend/src/config/env.schema.ts` | Remove three fields |
 | `.env.example` | Remove three fields |
+| `apps/frontend/src/api/hooks/settings.ts` | New hooks: `useUserSettings`, `useUpdateUserSettings` |
+| `apps/frontend/src/pages/AiSettingsPage.tsx` | New settings page |
+| `apps/frontend/src/routes.tsx` | Add `/settings/ai` route |
+| `apps/frontend/src/layout/nav-config.ts` | Add AI nav item under Settings group |
