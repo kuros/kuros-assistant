@@ -5,6 +5,8 @@ import CalendarViewWeekIcon from '@mui/icons-material/CalendarViewWeek';
 import PersonIcon from '@mui/icons-material/Person';
 import GroupsIcon from '@mui/icons-material/Groups';
 import CableIcon from '@mui/icons-material/Cable';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
 
 export interface NavItem {
@@ -39,6 +41,10 @@ export const nav: NavGroup[] = [
   },
   {
     group: 'Settings',
-    items: [{ label: 'Connectors', to: '/connectors', icon: CableIcon }],
+    items: [
+      { label: 'Connectors', to: '/connectors', icon: CableIcon },
+      { label: 'Profile', to: '/settings/profile', icon: AccountCircleIcon },
+      { label: 'AI', to: '/settings/ai', icon: SmartToyOutlinedIcon },
+    ],
   },
 ];
