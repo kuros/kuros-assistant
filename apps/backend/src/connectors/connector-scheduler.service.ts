@@ -1,14 +1,16 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConnectorEntity } from '../entities/connector.entity';
 import { ConnectorSyncStateEntity } from '../entities/connector-sync-state.entity';
+import { UserEntity } from '../entities/user.entity';
 import { ConnectorRegistry } from './connector.registry';
 import { STORAGE, type StorageService } from '../storage/storage.service';
-import { Inject } from '@nestjs/common';
 import { paths } from '../storage/path-builder';
 import type { RawItem } from './connector.interface';
+import { SINGLE_USER_ID } from '@kuros/shared';
+import { UserSettingsService } from '../me/user-settings.service';
 
 @Injectable()
 export class ConnectorSchedulerService {
@@ -20,9 +22,22 @@ export class ConnectorSchedulerService {
     private readonly connectors: Repository<ConnectorEntity>,
     @InjectRepository(ConnectorSyncStateEntity)
     private readonly syncStates: Repository<ConnectorSyncStateEntity>,
+    @InjectRepository(UserEntity)
+    private readonly users: Repository<UserEntity>,
     private readonly registry: ConnectorRegistry,
     @Inject(STORAGE) private readonly storage: StorageService,
+    private readonly userSettings: UserSettingsService,
   ) {}
+
+  private async isOnboarded(): Promise<boolean> {
+    const user = await this.users.findOne({ where: { id: SINGLE_USER_ID } });
+    return user?.onboarded ?? false;
+  }
+
+  private async hasApiKey(): Promise<boolean> {
+    const key = await this.userSettings.getRawApiKey(SINGLE_USER_ID);
+    return key != null && key.length > 0;
+  }
 
   private async withMutex<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
     if (this.mutex.get(key)) {
@@ -39,6 +54,14 @@ export class ConnectorSchedulerService {
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async syncAll(): Promise<void> {
+    if (!(await this.isOnboarded())) {
+      this.logger.log({ job: 'syncAll', status: 'awaiting_onboarding' });
+      return;
+    }
+    if (!(await this.hasApiKey())) {
+      this.logger.warn('syncAll: skipping — Anthropic API key not configured');
+      return;
+    }
     await this.withMutex('syncAll', async () => {
       const rows = await this.connectors.find({ where: { status: 'active' } });
       for (const c of rows) {
@@ -114,15 +137,29 @@ export class ConnectorSchedulerService {
     }
   }
 
-  // Daily summary fan-out at 23:30 every day.
   @Cron('30 23 * * *')
   async dailyFanout(): Promise<void> {
+    if (!(await this.isOnboarded())) {
+      this.logger.log({ job: 'dailyFanout', status: 'awaiting_onboarding' });
+      return;
+    }
+    if (!(await this.hasApiKey())) {
+      this.logger.warn('dailyFanout: skipping — Anthropic API key not configured');
+      return;
+    }
     this.logger.log('dailyFanout: not yet implemented (Phase 4/5 will wire this)');
   }
 
-  // Weekly summary at 06:00 on Mondays.
   @Cron('0 6 * * 1')
   async weeklyFanout(): Promise<void> {
+    if (!(await this.isOnboarded())) {
+      this.logger.log({ job: 'weeklyFanout', status: 'awaiting_onboarding' });
+      return;
+    }
+    if (!(await this.hasApiKey())) {
+      this.logger.warn('weeklyFanout: skipping — Anthropic API key not configured');
+      return;
+    }
     this.logger.log('weeklyFanout: not yet implemented (Phase 4/5 will wire this)');
   }
 }

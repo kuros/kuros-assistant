@@ -1,7 +1,7 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { z, ZodSchema } from 'zod';
+import { ClaudeClientFactory } from './claude-client.factory';
 
 export type ClaudeModelTier = 'fast' | 'deep';
 
@@ -25,31 +25,22 @@ export interface ExtractStructuredArgs<T> {
 
 @Injectable()
 export class ClaudeService {
-  private readonly client: Anthropic;
   private readonly logger = new Logger(ClaudeService.name);
-  private readonly modelFast: string;
-  private readonly modelDeep: string;
 
-  constructor(cfg: ConfigService) {
-    const apiKey = cfg.get<string>('ANTHROPIC_API_KEY');
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-    this.client = new Anthropic({ apiKey });
-    this.modelFast = cfg.get<string>('CLAUDE_MODEL_FAST') ?? 'claude-sonnet-4-6';
-    this.modelDeep = cfg.get<string>('CLAUDE_MODEL_DEEP') ?? 'claude-opus-4-7';
-  }
+  constructor(private readonly factory: ClaudeClientFactory) {}
 
-  private modelFor(tier: ClaudeModelTier | undefined): string {
-    return tier === 'deep' ? this.modelDeep : this.modelFast;
-  }
-
-  async summarize(args: SummarizeArgs): Promise<{ text: string; modelUsed: string }> {
-    const model = this.modelFor(args.model);
+  async summarize(
+    userId: string,
+    args: SummarizeArgs,
+  ): Promise<{ text: string; modelUsed: string }> {
+    const { client, modelFast, modelDeep } = await this.factory.getContext(userId);
+    const model = args.model === 'deep' ? modelDeep : modelFast;
     try {
-      const response = await this.client.messages.create({
+      const response = await client.messages.create({
         model,
         max_tokens: args.maxTokens ?? (args.model === 'deep' ? 8192 : 4096),
         system: [
-          { type: 'text', text: args.system, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: args.system, cache_control: { type: 'ephemeral' } } as Anthropic.TextBlockParam,
         ],
         messages: [{ role: 'user', content: args.user }],
       });
@@ -64,14 +55,18 @@ export class ClaudeService {
     }
   }
 
-  async extractStructured<T>(args: ExtractStructuredArgs<T>): Promise<{ data: T; modelUsed: string }> {
-    const model = this.modelFor(args.model);
+  async extractStructured<T>(
+    userId: string,
+    args: ExtractStructuredArgs<T>,
+  ): Promise<{ data: T; modelUsed: string }> {
+    const { client, modelFast, modelDeep } = await this.factory.getContext(userId);
+    const model = args.model === 'deep' ? modelDeep : modelFast;
     try {
-      const response = await this.client.messages.create({
+      const response = await client.messages.create({
         model,
         max_tokens: args.maxTokens ?? 2048,
         system: [
-          { type: 'text', text: args.system, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: args.system, cache_control: { type: 'ephemeral' } } as Anthropic.TextBlockParam,
         ],
         tools: [
           {
@@ -91,8 +86,10 @@ export class ClaudeService {
       }
       const parsed = args.schema.safeParse(toolUse.input);
       if (!parsed.success) {
-        this.logger.warn(`Tool input failed schema: ${z.prettifyError ? z.prettifyError(parsed.error) : parsed.error.message}`);
-        throw new Error(`Claude tool input did not match schema`);
+        this.logger.warn(
+          `Tool input failed schema: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`,
+        );
+        throw new Error('Claude tool input did not match schema');
       }
       return { data: parsed.data, modelUsed: model };
     } catch (err) {

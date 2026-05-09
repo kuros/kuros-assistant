@@ -36,7 +36,7 @@ export class PostSummaryPipeline {
     const markdown = await this.storage.read(args.summary.filePath);
 
     try {
-      const { data: ai } = await this.claude.extractStructured({
+      const { data: ai } = await this.claude.extractStructured(args.userId, {
         system: actionItemsPrompt.system,
         user: actionItemsPrompt.user({
           sourceLabel: args.sourceLabel,
@@ -66,7 +66,7 @@ export class PostSummaryPipeline {
     }
 
     try {
-      const { data: rk } = await this.claude.extractStructured({
+      const { data: rk } = await this.claude.extractStructured(args.userId, {
         system: risksPrompt.system,
         user: risksPrompt.user({
           sourceLabel: args.sourceLabel,

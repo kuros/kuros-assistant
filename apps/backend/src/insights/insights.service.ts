@@ -80,7 +80,7 @@ export class InsightsService {
     }
     const corpus = corpusParts.join('\n\n');
 
-    const { text, modelUsed } = await this.claude.summarize({
+    const { text, modelUsed } = await this.claude.summarize(args.userId, {
       system: insightsPrompt.system({
         scopeLabel: args.scopeLabel,
         periodStart: args.from,

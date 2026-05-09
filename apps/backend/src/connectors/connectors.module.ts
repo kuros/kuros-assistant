@@ -5,6 +5,8 @@ import { ConnectorSyncStateEntity } from '../entities/connector-sync-state.entit
 import { ActionItemEntity } from '../entities/action-item.entity';
 import { RiskEntity } from '../entities/risk.entity';
 import { SummaryEntity } from '../entities/summary.entity';
+import { UserEntity } from '../entities/user.entity';
+import { MeModule } from '../me/me.module';
 import { ConnectorsController } from './connectors.controller';
 import { ConnectorsService } from './connectors.service';
 import { ConnectorRegistry } from './connector.registry';
@@ -19,7 +21,9 @@ import { PostSummaryPipeline } from './post-summary.pipeline';
       ActionItemEntity,
       RiskEntity,
       SummaryEntity,
+      UserEntity,
     ]),
+    MeModule,
   ],
   controllers: [ConnectorsController],
   providers: [ConnectorsService, ConnectorRegistry, ConnectorSchedulerService, PostSummaryPipeline],
