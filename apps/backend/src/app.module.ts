@@ -8,13 +8,16 @@ import { StorageModule } from './storage/storage.module';
 import { ClaudeModule } from './claude/claude.module';
 import { HealthModule } from './health/health.module';
 import { ConnectorsModule } from './connectors/connectors.module';
-import { SlackModule } from './slack/slack.module';
-import { OutlookModule } from './outlook/outlook.module';
+import { SlackModule } from './connectors/slack/slack.module';
+import { OutlookModule } from './connectors/outlook/outlook.module';
+import { OutlookPersonalModule } from './connectors/outlook-personal/outlook-personal.module';
+import { JiraModule } from './connectors/jira/jira.module';
 import { SummariesModule } from './summaries/summaries.module';
 import { ActionItemsModule } from './action-items/action-items.module';
 import { RisksModule } from './risks/risks.module';
 import { PeopleTeamsModule } from './people-teams/people-teams.module';
 import { InsightsModule } from './insights/insights.module';
+import { MeModule } from './me/me.module';
 
 @Module({
   imports: [
@@ -26,9 +29,12 @@ import { InsightsModule } from './insights/insights.module';
     ClaudeModule,
     ScheduleModule.forRoot(),
     HealthModule,
+    MeModule,
     ConnectorsModule,
     SlackModule,
     OutlookModule,
+    OutlookPersonalModule,
+    JiraModule,
     SummariesModule,
     ActionItemsModule,
     RisksModule,

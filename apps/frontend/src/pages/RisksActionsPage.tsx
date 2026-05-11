@@ -1,5 +1,6 @@
 import {
   Box,
+  Button,
   MenuItem,
   Paper,
   Select,
@@ -13,9 +14,11 @@ import {
   Tabs,
   Typography,
 } from '@mui/material';
+import SyncIcon from '@mui/icons-material/Sync';
 import { useSearchParams } from 'react-router-dom';
 import { useActionItems, useUpdateActionItem } from '../api/hooks/action-items';
 import { useRisks, useUpdateRisk } from '../api/hooks/risks';
+import { useSyncAllConnectors } from '../api/hooks/connectors';
 import type { ActionItemStatus, RiskSeverity, RiskStatus } from '@kuros/shared';
 import { StatusChip } from '../components/StatusChip';
 import { EmptyState } from '../components/EmptyState';
@@ -24,11 +27,14 @@ const ACTION_STATUSES: ActionItemStatus[] = ['open', 'in_progress', 'done', 'dis
 const RISK_STATUSES: RiskStatus[] = ['open', 'mitigated', 'accepted', 'closed'];
 const RISK_SEVERITIES: RiskSeverity[] = ['low', 'medium', 'high', 'critical'];
 
+const ACTIVE_ACTION_STATUSES: ActionItemStatus[] = ['open', 'in_progress'];
+const ACTIVE_RISK_STATUSES: RiskStatus[] = ['open', 'mitigated', 'accepted'];
+
 function ActionItemsTab(): JSX.Element {
-  const q = useActionItems({});
+  const q = useActionItems({ status: ACTIVE_ACTION_STATUSES.join(',') });
   const upd = useUpdateActionItem();
   if (q.isLoading) return <Typography>Loading…</Typography>;
-  if (!q.data || q.data.length === 0)
+  if (!q.data || q.data.data.length === 0)
     return <EmptyState title="No action items" description="They appear after a daily summary runs." />;
   return (
     <Paper variant="outlined">
@@ -43,7 +49,7 @@ function ActionItemsTab(): JSX.Element {
           </TableRow>
         </TableHead>
         <TableBody>
-          {q.data.map((a) => (
+          {q.data.data.map((a) => (
             <TableRow key={a.id} hover>
               <TableCell>{a.title}</TableCell>
               <TableCell sx={{ maxWidth: 400, color: 'text.secondary' }}>
@@ -73,10 +79,10 @@ function ActionItemsTab(): JSX.Element {
 }
 
 function RisksTab(): JSX.Element {
-  const q = useRisks({});
+  const q = useRisks({ status: ACTIVE_RISK_STATUSES.join(',') });
   const upd = useUpdateRisk();
   if (q.isLoading) return <Typography>Loading…</Typography>;
-  if (!q.data || q.data.length === 0)
+  if (!q.data || q.data.data.length === 0)
     return <EmptyState title="No risks tracked" description="They appear after a daily summary runs." />;
   return (
     <Paper variant="outlined">
@@ -90,7 +96,7 @@ function RisksTab(): JSX.Element {
           </TableRow>
         </TableHead>
         <TableBody>
-          {q.data.map((r) => (
+          {q.data.data.map((r) => (
             <TableRow key={r.id} hover>
               <TableCell>
                 <Stack>
@@ -142,11 +148,21 @@ function RisksTab(): JSX.Element {
 export function RisksActionsPage(): JSX.Element {
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') === 'risks' ? 'risks' : 'actions';
+  const syncAll = useSyncAllConnectors();
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>
-        Risks & action items
-      </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+        <Typography variant="h5">Risks & action items</Typography>
+        <Button
+          startIcon={<SyncIcon />}
+          variant="outlined"
+          size="small"
+          disabled={syncAll.isPending}
+          onClick={() => syncAll.mutate()}
+        >
+          {syncAll.isPending ? 'Syncing…' : 'Sync now'}
+        </Button>
+      </Stack>
       <Tabs
         value={tab}
         onChange={(_, v) => {

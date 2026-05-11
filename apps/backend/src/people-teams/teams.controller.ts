@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { TeamEntity } from '../entities/team.entity';
@@ -9,11 +9,13 @@ import { ArrayUnique, IsArray, IsOptional, IsString, IsUUID, MaxLength } from 'c
 
 class CreateTeamDto {
   @IsString() @MaxLength(120) name!: string;
+  @IsOptional() @IsString() description?: string | null;
   @IsArray() @ArrayUnique() @IsUUID('4', { each: true }) memberIds!: string[];
 }
 
 class UpdateTeamDto {
   @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsString() description?: string | null;
   @IsOptional() @IsArray() @ArrayUnique() @IsUUID('4', { each: true }) memberIds?: string[];
 }
 
@@ -30,6 +32,7 @@ export class TeamsController {
     return {
       id: e.id,
       name: e.name,
+      description: e.description,
       memberIds: ms.map((m) => m.personId),
       createdAt: e.createdAt.toISOString(),
       updatedAt: e.updatedAt.toISOString(),
@@ -48,7 +51,7 @@ export class TeamsController {
     @Body() dto: CreateTeamDto,
   ): Promise<TeamDto> {
     return this.ds.transaction(async (mgr) => {
-      const team = await mgr.save(mgr.create(TeamEntity, { userId: user.id, name: dto.name }));
+      const team = await mgr.save(mgr.create(TeamEntity, { userId: user.id, name: dto.name, description: dto.description ?? null }));
       if (dto.memberIds.length > 0) {
         await mgr.insert(
           TeamMemberEntity,
@@ -68,6 +71,7 @@ export class TeamsController {
     return this.ds.transaction(async (mgr) => {
       const team = await mgr.findOneOrFail(TeamEntity, { where: { id, userId: user.id } });
       if (dto.name !== undefined) team.name = dto.name;
+      if (dto.description !== undefined) team.description = dto.description ?? null;
       const saved = await mgr.save(team);
       if (dto.memberIds !== undefined) {
         await mgr.delete(TeamMemberEntity, { teamId: id });
@@ -79,6 +83,18 @@ export class TeamsController {
         }
       }
       return this.toDto(saved);
+    });
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    await this.ds.transaction(async (mgr) => {
+      await mgr.delete(TeamMemberEntity, { teamId: id });
+      await mgr.delete(TeamEntity, { id, userId: user.id });
     });
   }
 }

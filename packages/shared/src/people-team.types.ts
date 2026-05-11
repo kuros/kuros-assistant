@@ -22,6 +22,7 @@ export type UpdatePersonRequest = Partial<CreatePersonRequest>;
 export interface TeamDto {
   id: string;
   name: string;
+  description: string | null;
   memberIds: string[];
   createdAt: string;
   updatedAt: string;
@@ -29,10 +30,12 @@ export interface TeamDto {
 
 export interface CreateTeamRequest {
   name: string;
+  description?: string | null;
   memberIds: string[];
 }
 
 export interface UpdateTeamRequest {
   name?: string;
+  description?: string | null;
   memberIds?: string[];
 }

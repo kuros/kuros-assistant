@@ -7,6 +7,7 @@ import {
   Box,
   Button,
   CircularProgress,
+  Divider,
   IconButton,
   InputAdornment,
   Snackbar,
@@ -15,7 +16,9 @@ import {
 } from '@mui/material';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
-import { useUserSettings, useUpdateUserSettings } from '../api/hooks/settings';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { useUserSettings, useUpdateUserSettings, useTestApiKey } from '../api/hooks/settings';
 
 const schema = z.object({
   anthropicApiKey: z.string().optional(),
@@ -27,6 +30,7 @@ type FormValues = z.infer<typeof schema>;
 export function AiSettingsPage() {
   const { data: settings, isLoading } = useUserSettings();
   const { mutateAsync, isPending, error } = useUpdateUserSettings();
+  const { mutateAsync: testKey, isPending: isTesting, data: testResult, reset: resetTest } = useTestApiKey();
   const [saved, setSaved] = useState(false);
   const [showKey, setShowKey] = useState(false);
 
@@ -34,11 +38,14 @@ export function AiSettingsPage() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { anthropicApiKey: '', claudeModelFast: '', claudeModelDeep: '' },
   });
+
+  const currentKeyValue = watch('anthropicApiKey');
 
   useEffect(() => {
     if (settings) {
@@ -47,8 +54,9 @@ export function AiSettingsPage() {
         claudeModelFast: settings.claudeModelFast,
         claudeModelDeep: settings.claudeModelDeep,
       });
+      resetTest();
     }
-  }, [settings, reset]);
+  }, [settings, reset, resetTest]);
 
   if (isLoading) return null;
 
@@ -126,6 +134,38 @@ export function AiSettingsPage() {
           {isPending ? <CircularProgress size={20} /> : 'Save'}
         </Button>
       </Box>
+
+      <Divider sx={{ my: 3 }} />
+
+      <Typography variant="h6" fontWeight={600} gutterBottom>
+        Test Connection
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        {currentKeyValue
+          ? 'Tests the key entered above (not yet saved).'
+          : settings?.hasAnthropicKey
+          ? 'Tests the currently saved API key.'
+          : 'No API key configured. Enter a key above and save it first.'}
+      </Typography>
+
+      <Button
+        variant="outlined"
+        onClick={() => testKey(currentKeyValue || undefined)}
+        disabled={isTesting || (!currentKeyValue && !settings?.hasAnthropicKey)}
+        sx={{ alignSelf: 'flex-start' }}
+      >
+        {isTesting ? <CircularProgress size={20} /> : 'Test Connection'}
+      </Button>
+
+      {testResult && (
+        <Alert
+          severity={testResult.ok ? 'success' : 'error'}
+          icon={testResult.ok ? <CheckCircleOutlineIcon /> : <ErrorOutlineIcon />}
+          sx={{ mt: 2 }}
+        >
+          {testResult.ok ? 'API key is valid and working.' : `Invalid key: ${testResult.error}`}
+        </Alert>
+      )}
 
       <Snackbar
         open={saved}

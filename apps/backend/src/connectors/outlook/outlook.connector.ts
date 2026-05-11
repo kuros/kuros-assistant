@@ -1,9 +1,9 @@
 import { Injectable, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Connector, type ConnectorTestResult, type SyncResult } from '../connectors/connector.interface';
-import { ConnectorRegistry } from '../connectors/connector.registry';
-import { ConnectorEntity } from '../entities/connector.entity';
+import { Connector, type ConnectorTestResult, type SyncResult } from '../connector.interface';
+import { ConnectorRegistry } from '../connector.registry';
+import { ConnectorEntity } from '../../entities/connector.entity';
 import { outlookConfigSchema, type OutlookConfigParsed } from './outlook.types';
 import { OutlookAuthService } from './outlook.auth';
 import { OutlookClient } from './outlook.client';

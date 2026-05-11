@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { UserContext } from './user-context';
+import { formatTeams } from './user-context';
 
 export const actionItemsSchema = z.object({
   items: z.array(
@@ -15,7 +17,7 @@ export type ActionItemsExtraction = z.infer<typeof actionItemsSchema>;
 export const actionItemsPrompt = {
   toolName: 'record_action_items',
   toolDescription:
-    'Record concrete, actionable items the user is responsible for from a summary.',
+    'Record concrete, actionable items from a summary, prioritising those owned by the user or their teams.',
   toolInputSchema: {
     type: 'object',
     required: ['items'],
@@ -35,7 +37,16 @@ export const actionItemsPrompt = {
     },
   } as const,
 
-  system: `Extract concrete, actionable items the user is responsible for, from the supplied summary. An action item must have a clear verb, a clear object, and be something the user (not someone else) needs to do. Skip vague aspirations. If there are no action items, return { items: [] }.`,
+  system: (userCtx: UserContext): string => {
+    const teams = formatTeams(userCtx);
+    return `Extract concrete, actionable items from the supplied summary that ${userCtx.name} or any member of their teams is responsible for.
+The user is ${userCtx.name}; their teams are: ${teams}.
+
+Rules:
+- Only include items where the owner is ${userCtx.name} or a named member of their teams. Skip everything else.
+- An action item must have a clear verb, a clear object, and be owned by one of the above people. Skip vague aspirations.
+- If there are no qualifying action items, return { items: [] }.`;
+  },
 
   user: (args: { sourceLabel: string; period: string; summaryMarkdown: string }): string =>
     `Summary source: ${args.sourceLabel}, ${args.period}.\n\n${args.summaryMarkdown}`,

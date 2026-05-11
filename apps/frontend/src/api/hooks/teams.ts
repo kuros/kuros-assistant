@@ -25,3 +25,11 @@ export function useUpdateTeam() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['teams'] }),
   });
 }
+
+export function useDeleteTeam() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<void>(`/api/teams/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['teams'] }),
+  });
+}

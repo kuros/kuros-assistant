@@ -16,6 +16,8 @@ export interface ActionItemsQuery {
   status?: ActionItemStatus | ActionItemStatus[];
   from?: string;
   to?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface UpdateActionItemRequest {

@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import type { SummaryKind } from '@kuros/shared';
 
-@Entity({ schema: 'kuros_manager', name: 'summaries' })
+@Entity({ name: 'summaries' })
 @Index('idx_summaries_user_id', ['userId'])
 @Index('idx_summaries_connector_id', ['connectorId'])
 @Unique('uq_summaries_period', ['userId', 'connectorId', 'targetId', 'kind', 'periodStart'])

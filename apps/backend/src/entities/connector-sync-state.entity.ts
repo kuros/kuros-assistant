@@ -1,6 +1,6 @@
 import { Column, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 
-@Entity({ schema: 'kuros_manager', name: 'connector_sync_state' })
+@Entity({ name: 'connector_sync_state' })
 export class ConnectorSyncStateEntity {
   @PrimaryColumn({ type: 'uuid', name: 'connector_id' })
   connectorId!: string;

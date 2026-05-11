@@ -1,13 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConnectorEntity } from '../entities/connector.entity';
+import { UserEntity } from '../entities/user.entity';
 import type { ConnectorDto, ConnectorKind, ConnectorConfig } from '@kuros/shared';
 import { ConnectorRegistry } from './connector.registry';
 import { CreateConnectorDto } from './dto/create-connector.dto';
 import { UpdateConnectorDto } from './dto/update-connector.dto';
 
-const SECRET_KEYS = new Set(['botToken', 'appToken', 'clientSecret', 'cachedTokenFilePath']);
+const SECRET_KEYS = new Set(['botToken', 'appToken', 'clientSecret', 'cachedTokenFilePath', 'apiToken']);
 
 function redactConfig(cfg: Record<string, unknown>): Partial<ConnectorConfig> {
   const out: Record<string, unknown> = {};
@@ -22,6 +23,8 @@ export class ConnectorsService {
   constructor(
     @InjectRepository(ConnectorEntity)
     private readonly repo: Repository<ConnectorEntity>,
+    @InjectRepository(UserEntity)
+    private readonly users: Repository<UserEntity>,
     private readonly registry: ConnectorRegistry,
   ) {}
 
@@ -43,6 +46,10 @@ export class ConnectorsService {
     return rows.map((r) => this.toDto(r));
   }
 
+  async listRaw(userId: string): Promise<ConnectorEntity[]> {
+    return this.repo.find({ where: { userId }, order: { createdAt: 'ASC' } });
+  }
+
   async getRaw(userId: string, id: string): Promise<ConnectorEntity> {
     const row = await this.repo.findOne({ where: { id, userId } });
     if (!row) throw new NotFoundException(`Connector not found: ${id}`);
@@ -54,6 +61,10 @@ export class ConnectorsService {
   }
 
   async create(userId: string, dto: CreateConnectorDto): Promise<ConnectorDto> {
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user?.onboarded) {
+      throw new ConflictException('awaiting_onboarding');
+    }
     const connector = this.registry.get(dto.kind as ConnectorKind);
     await connector.validateConfig(dto.config);
     const entity = this.repo.create({

@@ -18,8 +18,8 @@ export class SlackClient {
   private readonly userCache = new Map<string, SlackUserInfo>();
   private readonly channelCache = new Map<string, string>();
 
-  constructor(botToken: string) {
-    this.web = new WebClient(botToken);
+  constructor(token: string) {
+    this.web = new WebClient(token);
   }
 
   async authTest(): Promise<{ teamId: string; userId: string }> {

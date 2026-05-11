@@ -1,7 +1,7 @@
 import { Column, Entity, JoinColumn, OneToOne, PrimaryColumn } from 'typeorm';
 import { UserEntity } from './user.entity';
 
-@Entity({ schema: 'kuros_manager', name: 'user_settings' })
+@Entity({ name: 'user_settings' })
 export class UserSettingsEntity {
   @PrimaryColumn({ type: 'uuid', name: 'user_id' })
   userId!: string;

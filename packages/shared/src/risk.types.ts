@@ -18,6 +18,8 @@ export interface RisksQuery {
   severity?: RiskSeverity | RiskSeverity[];
   from?: string;
   to?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface UpdateRiskRequest {

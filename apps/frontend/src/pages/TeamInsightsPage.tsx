@@ -7,9 +7,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import SyncIcon from '@mui/icons-material/Sync';
 import { format, subDays } from 'date-fns';
 import { useTeams } from '../api/hooks/teams';
 import { useGenerateInsight, useInsight } from '../api/hooks/insights';
+import { useSyncAllConnectors } from '../api/hooks/connectors';
 import { MarkdownView } from '../components/MarkdownView';
 import { EmptyState } from '../components/EmptyState';
 
@@ -20,12 +22,22 @@ export function TeamInsightsPage(): JSX.Element {
   const [to, setTo] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const generate = useGenerateInsight();
   const insight = useInsight(teamId ? { scope: 'team', scopeId: teamId, from, to } : null);
+  const syncAll = useSyncAllConnectors();
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>
-        Team insights
-      </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+        <Typography variant="h5">Team insights</Typography>
+        <Button
+          startIcon={<SyncIcon />}
+          variant="outlined"
+          size="small"
+          disabled={syncAll.isPending}
+          onClick={() => syncAll.mutate()}
+        >
+          {syncAll.isPending ? 'Syncing…' : 'Sync now'}
+        </Button>
+      </Stack>
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>
         <Autocomplete
           options={teams.data ?? []}

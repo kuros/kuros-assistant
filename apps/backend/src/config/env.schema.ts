@@ -9,7 +9,6 @@ export const envSchema = z.object({
   DB_NAME: z.string().default('kuros_manager'),
   DB_USER: z.string().default('kuros'),
   DB_PASSWORD: z.string().default('kuros'),
-  DB_SCHEMA: z.string().default('kuros_manager'),
   KUROS_DATA_DIR: z.string().default('./data'),
   SLACK_BOT_TOKEN: z.string().optional(),
   SLACK_APP_TOKEN: z.string().optional(),

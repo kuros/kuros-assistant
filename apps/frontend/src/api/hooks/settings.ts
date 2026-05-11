@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPatch } from '../client';
+import { apiGet, apiPatch, apiPost } from '../client';
 import type { UserSettingsDto, UpdateUserSettingsRequest } from '@kuros/shared';
 
 export function useUserSettings() {
@@ -16,5 +16,12 @@ export function useUpdateUserSettings() {
     mutationFn: (data: UpdateUserSettingsRequest) =>
       apiPatch<UserSettingsDto>('/api/me/settings', data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'settings'] }),
+  });
+}
+
+export function useTestApiKey() {
+  return useMutation({
+    mutationFn: (apiKey?: string) =>
+      apiPost<{ ok: boolean; error?: string }>('/api/me/settings/test-key', { apiKey }),
   });
 }

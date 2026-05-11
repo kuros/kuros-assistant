@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { UserContext } from './user-context';
+import { formatTeams } from './user-context';
 
 export const risksSchema = z.object({
   risks: z.array(
@@ -14,7 +16,7 @@ export type RisksExtraction = z.infer<typeof risksSchema>;
 
 export const risksPrompt = {
   toolName: 'record_risks',
-  toolDescription: 'Record risks surfaced in a summary.',
+  toolDescription: 'Record risks surfaced in a summary, prioritising those that affect the user or their teams.',
   toolInputSchema: {
     type: 'object',
     required: ['risks'],
@@ -34,7 +36,17 @@ export const risksPrompt = {
     },
   } as const,
 
-  system: `Identify risks surfaced in the supplied summary. A risk is a future negative event that could plausibly occur, with a non-trivial impact on the user, their team, or the business. Do not flag low-impact annoyances. If there are no risks, return { risks: [] }.`,
+  system: (userCtx: UserContext): string => {
+    const teams = formatTeams(userCtx);
+    return `Identify risks from the supplied summary that could directly affect ${userCtx.name} or any of their teams.
+The user is ${userCtx.name}; their teams are: ${teams}.
+
+Rules:
+- Only record risks where the impact falls on ${userCtx.name} or a member/deliverable of ${userCtx.teams} teams. Skip risks that affect unrelated parties only.
+- Also capture risks with broader business or project impact that ${userCtx.name} should be aware of.
+- A risk must be a plausible future negative event with non-trivial impact. Do not flag low-impact annoyances.
+- If there are no qualifying risks, return { risks: [] }.`;
+  },
 
   user: (args: { sourceLabel: string; period: string; summaryMarkdown: string }): string =>
     `Summary source: ${args.sourceLabel}, ${args.period}.\n\n${args.summaryMarkdown}`,

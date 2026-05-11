@@ -1,18 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { RiskDto, UpdateRiskRequest } from '@kuros/shared';
-import { api } from '../client';
+import type { PaginatedResponse, RiskDto, UpdateRiskRequest } from '@kuros/shared';
+import { api, type ApiOptions } from '../client';
 
 export interface RisksFilter {
   status?: string;
   severity?: string;
   from?: string;
   to?: string;
+  page?: number;
+  limit?: number;
 }
 
 export function useRisks(filter: RisksFilter) {
   return useQuery({
     queryKey: ['risks', filter],
-    queryFn: () => api<RiskDto[]>('/api/risks', { query: filter }),
+    queryFn: () => api<PaginatedResponse<RiskDto>>('/api/risks', { query: filter as ApiOptions['query'] }),
   });
 }
 

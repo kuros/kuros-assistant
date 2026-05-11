@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import type { ActionItemStatus } from '@kuros/shared';
 
-@Entity({ schema: 'kuros_manager', name: 'action_items' })
+@Entity({ name: 'action_items' })
 @Index('idx_action_items_user_id', ['userId'])
 export class ActionItemEntity {
   @PrimaryGeneratedColumn('uuid')

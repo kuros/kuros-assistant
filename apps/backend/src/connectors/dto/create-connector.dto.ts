@@ -3,7 +3,7 @@ import type { ConnectorKind, ConnectorConfig } from '@kuros/shared';
 
 export class CreateConnectorDto {
   @IsString()
-  @IsIn(['slack', 'outlook'])
+  @IsIn(['slack', 'outlook', 'outlook-personal', 'jira'])
   kind!: ConnectorKind;
 
   @IsString()

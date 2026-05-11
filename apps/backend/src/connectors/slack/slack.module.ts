@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConnectorsModule } from '../connectors/connectors.module';
-import { ConnectorEntity } from '../entities/connector.entity';
+import { ConnectorsModule } from '../connectors.module';
+import { ConnectorEntity } from '../../entities/connector.entity';
 import { SlackConnector } from './slack.connector';
 
 @Module({

@@ -13,7 +13,7 @@ If anything in this document conflicts with [PLAN.md](PLAN.md), this document wi
 | 1 | Claude access | Anthropic API via `@anthropic-ai/sdk`, env `ANTHROPIC_API_KEY`. Default model `claude-sonnet-4-6`. Long-form insight model `claude-opus-4-7`. |
 | 2 | ORM | **TypeORM** (per user) |
 | 3 | Scheduler | `@nestjs/schedule` (in-process cron). BullMQ only when we move hosted. |
-| 4 | Slack auth | Socket Mode bot token (`xapp-` app token + `xoxb-` bot token). No public URL needed. |
+| 4 | Slack auth | v1 uses `@slack/web-api` `WebClient` for **polling-based sync only**. Required: bot token `xoxb-`. The `xapp-` app token may be stored on the connector but is unused in v1. `@slack/bolt` is **not** a v1 dependency. |
 | 5 | Outlook auth | MSAL Node, **device-code flow** for local. |
 | 6 | Data dir | `<repoRoot>/data` by default. Override via `KUROS_DATA_DIR`. |
 | 7 | Ports | Backend `3000`, frontend `5173`. |
@@ -22,6 +22,11 @@ If anything in this document conflicts with [PLAN.md](PLAN.md), this document wi
 | 10 | TS version | `5.5.x` |
 | 11 | DB | Postgres 16, schema `kuros_manager`. App user owns the schema. |
 | 12 | Test runner | Jest (NestJS default) for backend, Vitest for frontend |
+| 13 | Owner profile (email + timezone) | Stored on the seed `users` row, **set by the user via the frontend onboarding screen** — NOT via env vars. Both `email` and `timezone` (IANA name) are required before any cron sync runs. See §7.5 (bootstrap behavior) and §14.3 (onboarding page). |
+| 14 | Date/time bucketing | All daily/weekly bucketing and `[HH:mm]` rendering use `users.timezone`. If unset, the cron jobs no-op (logged as `awaiting_onboarding`). |
+| 15 | Secret merge on PATCH | When PATCH `/api/connectors/:id` body's `config` contains the literal string `***` for a token/secret field, the server preserves the existing stored value for that field (shallow merge over secret fields only). |
+| 16 | Outlook sync target | `connector_sync_state.targetId` = **mail folder id** (typically Inbox id). `monitoredAddresses` from `OutlookConnectorConfig` are applied as **client-side filters** after `/me/messages/delta` returns. Cursor = Graph delta token per folder. |
+| 17 | External-API retry policy | All Anthropic, Slack `WebClient`, and Graph calls go through a shared retry helper: 3 attempts, exponential backoff `500ms * 2^n`, retry only on HTTP 408/425/429/500/502/503/504 (and 529 for Anthropic). Honour `Retry-After` header when present. After final failure, throw and let the caller log + continue. See §9.2. |
 
 **Implementer rule:** if a question arises that is NOT answered here or in PLAN.md, **stop and ask** rather than choose. Do not invent column types, route paths, env var names, or prompt wording.
 
@@ -56,7 +61,7 @@ kuros-manager/
 ├── tsconfig.base.json
 ├── PLAN.md
 ├── IMPLEMENTATION.md
-├── README.md                       # short — points to PLAN/IMPLEMENTATION
+├── README.md                       # see §3.12 for required sections
 ├── data/                           # gitignored, created at runtime
 └── apps/
     ├── backend/
@@ -78,8 +83,10 @@ kuros-manager/
     │   │   │   │   └── current-user.decorator.ts
     │   │   │   ├── filters/
     │   │   │   │   └── http-exception.filter.ts
-    │   │   │   └── logging/
-    │   │   │       └── logger.module.ts     # nestjs-pino
+    │   │   │   ├── logging/
+    │   │   │   │   └── logger.module.ts     # nestjs-pino
+    │   │   │   └── retry/
+    │   │   │       └── with-retry.ts        # §9.3
     │   │   ├── database/
     │   │   │   ├── database.module.ts       # registers TypeOrmModule
     │   │   │   ├── data-source.ts           # for CLI migrations
@@ -110,6 +117,15 @@ kuros-manager/
     │   │   │       ├── action-items.prompt.ts
     │   │   │       ├── risks.prompt.ts
     │   │   │       └── insights.prompt.ts
+    │   │   ├── health/
+    │   │   │   ├── health.module.ts
+    │   │   │   └── health.controller.ts
+    │   │   ├── me/
+    │   │   │   ├── me.module.ts
+    │   │   │   ├── me.controller.ts
+    │   │   │   ├── me.service.ts
+    │   │   │   └── dto/
+    │   │   │       └── update-me.dto.ts
     │   │   ├── connectors/
     │   │   │   ├── connectors.module.ts
     │   │   │   ├── connectors.controller.ts
@@ -171,6 +187,7 @@ kuros-manager/
             ├── api/
             │   ├── client.ts                # fetch wrapper
             │   └── hooks/                   # one file per resource
+            │       ├── me.ts
             │       ├── connectors.ts
             │       ├── summaries.ts
             │       ├── insights.ts
@@ -189,6 +206,8 @@ kuros-manager/
             │   ├── StatusChip.tsx
             │   └── EmptyState.tsx
             ├── pages/
+            │   ├── OnboardingPage.tsx
+            │   ├── ProfilePage.tsx
             │   ├── ConnectorsPage.tsx
             │   ├── connectors/
             │   │   ├── ConnectorForm.tsx
@@ -364,6 +383,131 @@ volumes:
   kuros-db-data:
 ```
 
+### 3.9 Backend TS / Nest configs
+
+`apps/backend/tsconfig.json`:
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["node", "jest"]
+  },
+  "include": ["src/**/*", "test/**/*"]
+}
+```
+
+`apps/backend/tsconfig.build.json`:
+```json
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "scripts/**"]
+}
+```
+
+`apps/backend/nest-cli.json`:
+```json
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": { "tsConfigPath": "tsconfig.build.json", "deleteOutDir": true }
+}
+```
+
+### 3.10 Backend Jest configs
+
+`apps/backend/jest.config.ts`:
+```ts
+import type { Config } from 'jest';
+const config: Config = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  rootDir: 'src',
+  testRegex: '.*\\.spec\\.ts$',
+  moduleNameMapper: {
+    '^@kuros/shared$': '<rootDir>/../../../packages/shared/src/index.ts',
+    '^@kuros/shared/(.*)$': '<rootDir>/../../../packages/shared/src/$1',
+  },
+  collectCoverageFrom: ['**/*.(t|j)s'],
+};
+export default config;
+```
+
+`apps/backend/jest-e2e.config.ts`:
+```ts
+import type { Config } from 'jest';
+const config: Config = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  rootDir: '.',
+  testRegex: '.e2e-spec\\.ts$',
+  moduleNameMapper: {
+    '^@kuros/shared$': '<rootDir>/../../packages/shared/src/index.ts',
+    '^@kuros/shared/(.*)$': '<rootDir>/../../packages/shared/src/$1',
+  },
+};
+export default config;
+```
+
+### 3.11 Shared package files
+
+`packages/shared/package.json`:
+```json
+{
+  "name": "@kuros/shared",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "5.5.4"
+  }
+}
+```
+
+`packages/shared/tsconfig.json`:
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "./dist", "rootDir": "./src", "noEmit": true },
+  "include": ["src/**/*"]
+}
+```
+
+> Even though we point `main`/`types` directly at `.ts` source (no build step) for v1, `noEmit: true` gives us `tsc --noEmit` for type-checking in CI later.
+
+### 3.12 `README.md` required sections
+
+The repo README is short but must contain all the operational knowledge a fresh contributor needs. Sections in this order:
+
+1. **What this is** — 2-3 sentences linking to `PLAN.md` and `IMPLEMENTATION.md` as the authoritative specs.
+2. **Prerequisites** — copy of §1.
+3. **First-run setup** — exact commands:
+   ```bash
+   pnpm install
+   cp .env.example .env   # edit DB creds + ANTHROPIC_API_KEY
+   pnpm db:up             # starts postgres via docker-compose
+   pnpm db:migrate        # creates schema + seed user (email/timezone NULL)
+   pnpm dev               # boots backend (3000) and frontend (5173)
+   ```
+4. **Onboarding screen** — explain that on first load the frontend redirects to `/onboarding` to collect email + timezone + display name (§7.5, §14.3). No env vars are required for these.
+5. **Adding a Slack connector** — full content of §12.1.
+6. **Adding an Outlook connector** — full content of §13.1.
+7. **Common operations** — list the root scripts from §3.5 with one-line descriptions.
+8. **Where things live** — quick reference: `data/` for generated markdown, `apps/backend/src/prompts/` for Claude prompts, `packages/shared/` for cross-app types.
+9. **Troubleshooting** — at minimum: "device-code flow shows code in `/api/connectors/:id/test` response," "scheduler is no-op until onboarded," "to reset everything: `pnpm db:down && rm -rf data/`".
+
+Implementer keeps this README in sync as new operational knowledge arrives.
+
 ---
 
 ## 4. Shared package (`packages/shared`)
@@ -451,12 +595,13 @@ Implementer fills out `summary.types.ts`, `insight.types.ts`, `action-item.types
     "pino-http": "10.3.0",
     "pino-pretty": "11.2.2",
     "@anthropic-ai/sdk": "0.30.1",
-    "@slack/bolt": "3.21.4",
     "@slack/web-api": "7.5.0",
     "@microsoft/microsoft-graph-client": "3.0.7",
     "@azure/msal-node": "2.16.1",
     "isomorphic-fetch": "3.0.0",
     "date-fns": "3.6.0",
+    "date-fns-tz": "3.2.0",
+    "zod-to-json-schema": "3.23.5",
     "@kuros/shared": "workspace:*"
   },
   "devDependencies": {
@@ -486,10 +631,24 @@ This file is **separate** from the Nest module so the TypeORM CLI can use it.
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import * as dotenv from 'dotenv';
 
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
-dotenv.config(); // also try local
+// Walk up from cwd looking for `.env` so this works regardless of how the CLI is invoked
+// (`pnpm --filter backend ...` from repo root, or `pnpm migration:run` from apps/backend, etc.).
+function findEnv(startDir: string): string | null {
+  let dir = startDir;
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, '.env');
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+const envPath = findEnv(process.cwd());
+if (envPath) dotenv.config({ path: envPath });
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -518,8 +677,11 @@ All entities live in `src/entities/`. All use `@Entity({ schema: 'kuros_manager'
 | column | type | notes |
 |---|---|---|
 | id | uuid PK | gen |
-| email | varchar(320) UNIQUE | required |
+| email | varchar(320) UNIQUE NULLABLE | populated via onboarding (§7.5, §14.3). UNIQUE is `WHERE email IS NOT NULL`. |
+| timezone | varchar(64) NULLABLE | IANA name (e.g. `America/New_York`). Populated via onboarding. |
+| name | varchar(200) NULLABLE | optional display name; populated via onboarding. |
 | createdAt | timestamptz | |
+| updatedAt | timestamptz | |
 
 **`connectors`**
 | column | type | notes |
@@ -637,7 +799,7 @@ The migration must:
 1. `CREATE SCHEMA IF NOT EXISTS kuros_manager`
 2. `CREATE EXTENSION IF NOT EXISTS "uuid-ossp"` (on the `public` schema)
 3. Create all tables above with constraints listed
-4. Insert single seed user with `id = '00000000-0000-0000-0000-000000000001'`, email `local@kuros.local`
+4. Insert single seed user with `id = '00000000-0000-0000-0000-000000000001'` and `email = NULL`, `timezone = NULL`, `name = NULL` (populated via onboarding — see §7.5 and §14.3)
 5. `down()` drops in reverse FK order; do NOT drop the schema in `down()` (preserves user data).
 
 ---
@@ -676,7 +838,10 @@ export type Env = z.infer<typeof envSchema>;
 - Use `nestjs-pino` `Logger`
 - Global `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`
 - Global `HttpExceptionFilter`
-- Enable CORS for `http://localhost:5173` only in dev
+- CORS:
+  - `NODE_ENV=development` → allow origin `http://localhost:5173` only
+  - `NODE_ENV=test` → allow origin `http://localhost:5173`
+  - `NODE_ENV=production` → CORS disabled in v1 (the desktop wrapper serves the SPA from the same origin as the API; hosted multi-user is out of v1 scope per §17). If `production` is detected without an explicit `KUROS_ALLOWED_ORIGIN`, the app boots normally with CORS off and logs a single `cors_disabled_in_production` warning.
 - Listen on `PORT`
 
 ### 7.3 Auth stub (`common/auth/auth.guard.ts`)
@@ -685,6 +850,44 @@ export type Env = z.infer<typeof envSchema>;
 - A `@CurrentUser()` param decorator returns `req.user`
 
 Apply globally via `APP_GUARD` so every controller already sees `userId`.
+
+The auth guard exempts the health endpoint (§7.4) and the onboarding endpoints (§7.5) via a `@Public()` decorator (sets `Reflect.metadata('isPublic', true)` on the handler; guard reads via `Reflector` and skips when true). Note: the guard itself never blocks anything in v1 — `@Public()` exists for symmetry with future real auth.
+
+### 7.4 Health module (`apps/backend/src/health/`)
+
+Module: `HealthModule`. Controller: `HealthController`. Single route:
+
+```ts
+@Public()
+@Get('/api/health')
+get(): { ok: true; version: string } {
+  return { ok: true, version: process.env.npm_package_version ?? 'dev' };
+}
+```
+
+No DB call (intentionally cheap — used by Phase 1a smoke test before the database module is wired).
+
+### 7.5 Owner profile / onboarding gate
+
+The single seed user has `email`, `timezone`, and `name` NULL until the user fills out the onboarding screen (§14.3).
+
+**Endpoints** (under `/api/me`, exempted from any future auth via `@Public()` since the auth stub already injects `SINGLE_USER_ID`):
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/api/me` | — | `{ id, email: string \| null, timezone: string \| null, name: string \| null, onboarded: boolean }` |
+| PATCH | `/api/me` | `{ email?: string, timezone?: string, name?: string }` | same shape as GET |
+
+`onboarded` is the derived boolean `email != null && timezone != null`.
+
+`PATCH /api/me` validates:
+- `email` — RFC-5322 lite via zod `.string().email()`
+- `timezone` — must be in `Intl.supportedValuesOf('timeZone')` (Node 22 supports this); otherwise 400
+- `name` — `1..200` chars
+
+**Cron behavior when not onboarded.** Every cron job (§10.3) reads the user row first. If `onboarded === false`, the job logs `{ job, status: 'awaiting_onboarding' }` and exits — no Anthropic calls, no Slack/Graph polling, no `summaries` rows.
+
+**Connector creation when not onboarded.** `POST /api/connectors` returns 409 `{ error: 'awaiting_onboarding' }` until the user is onboarded. The frontend ConnectorsPage is unreachable while onboarding is incomplete (§14.3).
 
 ---
 
@@ -706,6 +909,8 @@ Provided as a Nest provider with token `STORAGE`. The default implementation, `L
 Pure functions. **Implementer must use only these helpers — never concatenate paths inline.**
 ```ts
 export const paths = {
+  rawItems: (userId: string, kind: ConnectorKind, targetId: string, day: Date) =>
+    `users/${userId}/${kind}/raw/${targetId}/${formatISODate(day)}.jsonl`,
   dailySummary: (userId: string, kind: ConnectorKind, targetId: string, day: Date) =>
     `users/${userId}/${kind}/daily/${targetId}/${formatISODate(day)}.md`,
   weeklySummary: (userId: string, kind: ConnectorKind, targetId: string, isoWeek: string) =>
@@ -716,7 +921,8 @@ export const paths = {
   risks: (userId: string, day: Date) => `users/${userId}/risks/${formatISODate(day)}.md`,
 };
 ```
-`isoWeek` format: `YYYY-Www` (e.g. `2026-W19`). Use `date-fns/formatISO`, `getISOWeek`, `getISOWeekYear`.
+- `formatISODate(d)` → `YYYY-MM-DD` **in the user's timezone** (`users.timezone`). Use `date-fns-tz/format` with `format(d, 'yyyy-MM-dd', { timeZone })` so days bucket correctly across DST transitions.
+- `isoWeek` format: `YYYY-Www` (e.g. `2026-W19`). Use `date-fns/formatISO`, `getISOWeek`, `getISOWeekYear` — also computed in the user's TZ.
 
 ---
 
@@ -754,9 +960,50 @@ export class ClaudeService {
   - `'fast'` → `cfg.CLAUDE_MODEL_FAST`
   - `'deep'` → `cfg.CLAUDE_MODEL_DEEP`
 - Default `maxTokens`: 4096 for fast, 8192 for deep.
-- Errors from Anthropic SDK are wrapped into `InternalServerErrorException` with the original message.
+- All Anthropic calls go through the retry helper (§9.2). After exhaustion, errors are wrapped into `InternalServerErrorException` with the original message.
 
-### 9.2 Prompt files
+### 9.2 Retry helper (`apps/backend/src/common/retry/with-retry.ts`)
+
+Used by `ClaudeService`, `SlackClient`, and `OutlookClient`. Single function — no retry library dependency.
+
+```ts
+export interface RetryOpts {
+  maxAttempts?: number;          // default 3
+  baseDelayMs?: number;          // default 500
+  isRetryable?: (err: unknown) => boolean;
+  onRetry?: (err: unknown, attempt: number, delayMs: number) => void;
+}
+
+export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOpts = {}): Promise<T> {
+  const max = opts.maxAttempts ?? 3;
+  const base = opts.baseDelayMs ?? 500;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= max; attempt++) {
+    try { return await fn(); }
+    catch (err) {
+      lastErr = err;
+      if (attempt === max) break;
+      if (opts.isRetryable && !opts.isRetryable(err)) break;
+      const retryAfterMs = extractRetryAfterMs(err);
+      const delay = retryAfterMs ?? base * Math.pow(2, attempt - 1);
+      opts.onRetry?.(err, attempt, delay);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+```
+
+`extractRetryAfterMs` reads `err.response?.headers?.['retry-after']` (HTTP date or seconds) and returns ms, or `null` if absent.
+
+Retryable predicates per provider:
+- **Anthropic:** retry on status `408 | 425 | 429 | 500 | 502 | 503 | 504 | 529`. The SDK throws `Anthropic.APIError` with `.status`.
+- **Slack `WebClient`:** retry on `error.code === 'slack_webapi_platform_error'` with `data.error === 'ratelimited'`, AND on transport errors (`ECONNRESET`, `ETIMEDOUT`).
+- **Graph:** retry on status `408 | 425 | 429 | 500 | 502 | 503 | 504`.
+
+`onRetry` logs structured: `{ provider, attempt, delayMs, err: err.message, status }`.
+
+### 9.3 Prompt files
 
 Each prompt module exports `system: string` and `userTemplate(input): string`. **Exact wording is part of the spec — do not paraphrase.** Below are the locked texts.
 
@@ -941,18 +1188,88 @@ All cron jobs MUST:
 - Wrap each connector iteration in try/catch; one bad connector cannot break the others
 - Log start/end with structured fields `{ job, connectorId, targetId, durationMs, ok }`
 
-### 10.4 `post-summary.pipeline.ts`
+### 10.4 Connector config zod schemas (`packages/shared/src/connector.types.ts`)
+
+Live in the shared package so the frontend form validation and the backend `validateConfig` use the **same** schema instance.
+
+```ts
+import { z } from 'zod';
+
+export const SlackConnectorConfigSchema = z.object({
+  botToken: z.string().regex(/^xoxb-/, 'must start with xoxb-'),
+  appToken: z.string().regex(/^xapp-/, 'must start with xapp-').optional().or(z.literal('')),
+  teamId: z.string().regex(/^T[A-Z0-9]+$/, 'expected Slack team id like T01234'),
+  channelIds: z.array(z.string().regex(/^[CG][A-Z0-9]+$/)).min(1, 'select at least one channel'),
+}).strict();
+
+export const OutlookConnectorConfigSchema = z.object({
+  tenantId: z.string().min(1),
+  clientId: z.string().uuid(),
+  cachedTokenFilePath: z.string().min(1),       // relative to data dir; server fills if missing
+  monitoredAddresses: z.array(z.string().email()).min(1),
+  teamLabels: z.record(z.string().email(), z.string().min(1).max(120)),
+  folderId: z.string().min(1),                  // Inbox id by default; resolved during connector creation
+}).strict();
+
+export const ConnectorConfigSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('slack'), config: SlackConnectorConfigSchema }),
+  z.object({ kind: z.literal('outlook'), config: OutlookConnectorConfigSchema }),
+]);
+```
+
+`Connector.validateConfig(cfg)` calls the appropriate schema's `parseAsync` and re-throws zod errors as `BadRequestException` whose body is `{ message: 'invalid_config', issues: ZodIssue[] }`.
+
+### 10.5 `post-summary.pipeline.ts`
 Given a freshly-written daily summary:
 1. Read the markdown.
-2. Run `extractStructured` for action items → upsert to `action_items`.
-3. Run `extractStructured` for risks → upsert to `risks`.
-4. Append a per-day combined `action-items/<date>.md` and `risks/<date>.md` file (idempotent: rewrite file from current DB state for that day).
+2. Run `extractStructured` for action items → upsert to `action_items` keyed by `(userId, sourceSummaryId, normalizedTitle)` where `normalizedTitle = title.trim().toLowerCase()`. New rows insert; existing rows leave user-edited `status` / `dueDate` untouched and update only `detail`.
+3. Run `extractStructured` for risks → upsert to `risks` keyed by `(userId, sourceSummaryId, normalizedTitle)` with the same idempotency rule.
+4. Rewrite the per-day combined `action-items/<date>.md` and `risks/<date>.md` files from the **current DB state** for that day (idempotent: full rewrite, not append).
+
+### 10.6 `insights.service.ts`
+
+Lives in `apps/backend/src/insights/`. Single service, used by both the cron weekly job and the on-demand controller endpoints (§11).
+
+```ts
+async generate(args: {
+  userId: string;
+  scope: 'person' | 'team' | 'channel';
+  scopeRef: string;       // personId | teamId | `${connectorId}:${targetId}`
+  periodStart: Date;
+  periodEnd: Date;
+}): Promise<Insight>;
+```
+
+Behavior:
+
+1. **Build the corpus** (read-only, from disk + DB):
+   - `scope='channel'`: read all `summaries` rows for `(userId, connectorId, targetId)` from §11 `scopeRef` parse with `periodStart..periodEnd` overlap. Concatenate the markdown files.
+   - `scope='team'`: load the team's member list, then for each member, find every `summaries` row where the daily/weekly markdown contains the person's `name`, `email`, `slackUserId`, or `outlookAddress` (full-text `LIKE` against the file content is fine for v1; pre-built corpus is Phase 9). Concatenate.
+   - `scope='person'`: same as team but for one person.
+2. **Cap corpus size.** Truncate to 200 KB. If truncated, append a marker `\n\n[truncated for length]\n` and log `{ scope, scopeRef, originalBytes, truncatedTo: 200_000 }`.
+3. **Call Claude.** `claude.summarize({ system: insightsPrompt.system(scopeLabel), user: insightsPrompt.userTemplate(...), model: 'deep' })`.
+4. **Write file** at `paths.insight(userId, scope, scopeRef, periodStart, periodEnd)`.
+5. **Upsert `insights` row** keyed by the table's UNIQUE `(userId, scope, scopeRef, periodStart, periodEnd)`. Replace `filePath` and `modelUsed`.
+6. **Return** the row.
+
+`scopeLabel` is computed:
+- `person` → `people.name`
+- `team` → `teams.name`
+- `channel` → `<connector.kind>:<labelForTarget(targetId)>`
+
+The `weeklyFanout` cron (§10.3) generates **person** insights for every active person and **team** insights for every team for the prior ISO week. Channel insights are on-demand only.
+
+If no corpus is found (e.g. no summaries in range), return 404 from the controller — do not write an empty file or an `insights` row.
 
 ---
 
 ## 11. Connectors API (controllers)
 
 All routes are JSON, prefixed `/api`. The auth stub injects `userId`. **Do NOT accept `userId` in any DTO.**
+
+**Token redaction round-trip (applies to PATCH on connectors):** GET responses redact secret fields (`botToken`, `appToken`, anything matching `/token|secret|password/i`) to the literal string `***`. When PATCH is called with a `config` object, the server **shallow-merges** the incoming config over the existing one, but for any secret field where the incoming value equals `***`, the existing stored value is preserved. This lets the frontend send the redacted form back unchanged without overwriting tokens.
+
+**People & teams creation (v1):** `people` and `teams` rows are created **manually** through `POST /api/people` and `POST /api/teams` (typically via the future People/Teams admin UI; for v1 the implementer can rely on direct API calls / SQL seeds). There is **no auto-extraction** of people from connector raw items in v1 — that's Phase 9 backlog. Without people/team rows, the corresponding insight pages will show an empty state and a "Create your first person/team" CTA.
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
@@ -974,8 +1291,10 @@ All routes are JSON, prefixed `/api`. The auth stub injects `userId`. **Do NOT a
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/api/action-items?status=&from=&to=` | `ActionItemDto[]` |
+| GET | `/api/action-items/markdown?date=YYYY-MM-DD` | `{ filePath: string, markdown: string }` (404 if not generated) |
 | PATCH | `/api/action-items/:id` | `{ status?, dueDate? }` → `ActionItemDto` |
 | GET | `/api/risks?status=&severity=&from=&to=` | `RiskDto[]` |
+| GET | `/api/risks/markdown?date=YYYY-MM-DD` | `{ filePath: string, markdown: string }` (404 if not generated) |
 | PATCH | `/api/risks/:id` | `{ status?, severity? }` → `RiskDto` |
 
 | Method | Path | Returns |
@@ -990,6 +1309,8 @@ All routes are JSON, prefixed `/api`. The auth stub injects `userId`. **Do NOT a
 | POST | `/api/insights/person/:personId/generate` | `{ from, to }` → `InsightDto` |
 | GET | `/api/insights/team/:teamId?from=&to=` | same |
 | POST | `/api/insights/team/:teamId/generate` | `{ from, to }` → `InsightDto` |
+| GET | `/api/insights/channel/:scopeRef?from=&to=` | `{ insight: InsightDto, markdown: string }` (404 if not generated). `scopeRef` is `<connectorId>:<targetId>` URL-encoded. |
+| POST | `/api/insights/channel/:scopeRef/generate` | `{ from, to }` → `InsightDto` |
 
 DTOs are defined alongside their feature module and re-exported from `@kuros/shared` where the frontend consumes them.
 
@@ -997,14 +1318,16 @@ DTOs are defined alongside their feature module and re-exported from `@kuros/sha
 
 ## 12. Slack connector — implementation notes
 
+v1 is **polling-only** via `@slack/web-api` `WebClient`. No Socket Mode, no Bolt, no event handlers. Push events are deferred to Phase 9.
+
 ### 12.1 Manual setup the user must do (document in README)
 1. Create a Slack app at api.slack.com.
-2. Enable **Socket Mode**, generate `xapp-` token (`SLACK_APP_TOKEN`).
-3. Bot scopes: `channels:history`, `groups:history`, `channels:read`, `groups:read`, `users:read`, `users:read.email`.
-4. Install to workspace, copy `xoxb-` token (`SLACK_BOT_TOKEN`).
+2. Bot scopes: `channels:history`, `groups:history`, `channels:read`, `groups:read`, `users:read`, `users:read.email`.
+3. Install to workspace, copy `xoxb-` token — paste into the Connectors form in the UI.
+4. (Optional, for future push events) Enable Socket Mode and generate an `xapp-` token; paste into the Connectors form. v1 stores it but does not use it.
 5. Invite the bot to each channel to be monitored.
 
-These tokens are entered into the Connectors page in the UI; env vars are only fallbacks for the implementer's testing.
+Tokens are entered into the Connectors page in the UI; env vars (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`) are fallbacks for the implementer's local testing only and are not read by the runtime connector.
 
 ### 12.2 `slack.client.ts`
 Wrapper around `@slack/web-api` `WebClient`. Methods:
@@ -1047,12 +1370,22 @@ The implementer formats `RawItem[]` for the prompt as:
 ### 13.3 `outlook.client.ts`
 Wrapper over `@microsoft/microsoft-graph-client`. Methods:
 - `mailFolders()` → list of folders (Inbox + custom)
-- `messagesSince(folderId, deltaToken?)` → uses `/me/messages/delta`. Filter on `toRecipients` containing user OR each `monitoredAddresses`.
+- `messagesSince(folderId, deltaToken?)` → uses `/me/mailFolders/{folderId}/messages/delta`. Returns `{ messages, deltaLink }`. **No `$filter` on recipients** — Graph's delta endpoint doesn't support arbitrary `$filter` on `toRecipients`. Filtering by address is done by the connector after fetch.
 
 ### 13.4 `outlook.connector.ts`
-Same shape as Slack:
-- Targets are entries from `OutlookConnectorConfig.monitoredAddresses` (one synthetic targetId per address; `labelForTarget` returns `teamLabels[address]` or the address itself).
-- Cursor is the Graph delta token.
+- `kind = 'outlook'`
+- `validateConfig`: parse with `OutlookConnectorConfigSchema` (§10.4). On creation, if `folderId` is empty, call `mailFolders()` and pick the user's `Inbox` (the well-known display name) and persist its id back into config.
+- **Targets** are mail folder ids. `listTargets(connectorId)` returns `[config.folderId]` (v1 supports one folder per connector; the ability to monitor multiple folders is Phase 9).
+- `labelForTarget(connectorId, folderId)` returns the folder's display name (cached).
+- **Cursor** = Graph delta token, persisted in `connector_sync_state.cursor` keyed by `(connectorId, folderId)`.
+- `syncTarget`:
+  1. Read `connector_sync_state.cursor` (delta token) for `(connectorId, folderId)`.
+  2. Call `messagesSince(folderId, cursor)`.
+  3. **Client-side filter:** keep messages whose `toRecipients` OR `ccRecipients` includes the user's `users.email` OR any address in `OutlookConnectorConfig.monitoredAddresses`. Drop the rest.
+  4. For each kept message, group by which monitored address (or "me") matched and emit `RawItem` with `metadata.matchedAddress` set. The downstream daily fanout treats each monitored address as a logical sub-target for summary file naming (path uses `targetId = sanitize(matchedAddress)` and `labelForTarget` reads `teamLabels[address]`).
+  5. Return `{ items, newCursor: deltaLink }`.
+
+> **Note on `targetId` reuse:** the row in `connector_sync_state` uses the folder id (one delta cursor per folder), but daily/weekly summary files and `summaries.targetId` use the matched address. This is the only place where the storage targetId differs from the sync-state targetId — implementer must take care.
 
 ---
 
@@ -1060,7 +1393,8 @@ Same shape as Slack:
 
 ### 14.1 Routing (`routes.tsx`)
 ```
-/                            → redirect /daily
+/                            → redirect: if !onboarded → /onboarding, else → /daily
+/onboarding                  → OnboardingPage (full-screen, no AppShell)
 /daily                       → DailySummaryPage
 /weekly                      → WeeklySummaryPage
 /risks-actions               → RisksActionsPage
@@ -1071,7 +1405,10 @@ Same shape as Slack:
 /connectors                  → ConnectorsPage
 /connectors/new              → ConnectorsPage (drawer open)
 /connectors/:id              → ConnectorsPage (drawer open, edit mode)
+/settings/profile            → ProfilePage (edit email, timezone, name post-onboarding)
 ```
+
+**Onboarding gate.** A top-level `<RequireOnboarding>` wrapper around AppShell calls `useMe()` (TanStack Query for `GET /api/me`). While loading: render full-page `<CircularProgress />`. If `!onboarded`: `<Navigate to="/onboarding" replace />`. The `/onboarding` route itself is rendered outside the AppShell so the side nav doesn't appear before setup is complete.
 
 ### 14.2 Side nav structure (`nav-config.ts`)
 ```ts
@@ -1090,11 +1427,24 @@ export const nav = [
   ]},
   { group: 'Settings', items: [
     { label: 'Connectors', to: '/connectors', icon: 'Cable' },
+    { label: 'Profile', to: '/settings/profile', icon: 'AccountCircle' },
   ]},
 ];
 ```
 
 ### 14.3 Page contracts
+
+**OnboardingPage** (`/onboarding`)
+- Full-screen card, no nav. Heading: "Welcome to Kuros Manager — let's set up your profile."
+- Form fields (RHF + zod):
+  - `name` — required, 1..200 chars.
+  - `email` — required, valid email. Hint text: "We use this to detect when you're @-mentioned or addressed directly."
+  - `timezone` — required, MUI `Autocomplete` populated from `Intl.supportedValuesOf('timeZone')`. Default-select the browser's `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+- Submit calls `PATCH /api/me`. On 200 → invalidate `['me']` query → `<Navigate to="/connectors" replace />` (so the user immediately lands on connector setup, the next required step).
+- Error rendering: inline under the offending field for 400, top-of-form alert for 5xx.
+
+**ProfilePage** (`/settings/profile`)
+- Same fields as OnboardingPage, prefilled from `useMe()`. Save button calls `PATCH /api/me`. No redirect on success — show a snackbar.
 
 **ConnectorsPage**
 - Layout: 2-col list + drawer.
@@ -1135,6 +1485,7 @@ export const nav = [
 ### 14.5 TanStack Query keys
 | Resource | Query key |
 |---|---|
+| Me | `['me']` |
 | Connectors list | `['connectors']` |
 | Connector detail | `['connectors', id]` |
 | Daily summaries | `['summaries', 'daily', { date, connectorId, targetId }]` |
@@ -1152,6 +1503,140 @@ Mutations call `queryClient.invalidateQueries` on the relevant keys.
 - MUI v6 `createTheme` with mode toggle (default light). Persist mode in `localStorage` key `kuros.theme`.
 - No custom colors; default palette is fine.
 
+### 14.7 `apps/frontend/package.json`
+
+```json
+{
+  "name": "@kuros/frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 5173",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.26.2",
+    "@tanstack/react-query": "5.59.0",
+    "@mui/material": "6.1.2",
+    "@mui/icons-material": "6.1.2",
+    "@emotion/react": "11.13.3",
+    "@emotion/styled": "11.13.0",
+    "react-hook-form": "7.53.0",
+    "@hookform/resolvers": "3.9.0",
+    "zod": "3.23.8",
+    "react-markdown": "9.0.1",
+    "remark-gfm": "4.0.0",
+    "date-fns": "3.6.0",
+    "@kuros/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.11",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "4.3.2",
+    "vite": "5.4.8",
+    "vitest": "2.1.2",
+    "@vitest/ui": "2.1.2",
+    "jsdom": "25.0.1",
+    "@testing-library/react": "16.0.1",
+    "@testing-library/jest-dom": "6.5.0",
+    "@testing-library/user-event": "14.5.2",
+    "typescript": "5.5.4"
+  }
+}
+```
+
+> Same pinning rule as the backend (§5): if a version no longer resolves, stop and ask.
+
+### 14.8 `apps/frontend/vite.config.ts`
+
+```ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 5173, strictPort: true },
+  resolve: { alias: { '@kuros/shared': new URL('../../packages/shared/src/index.ts', import.meta.url).pathname } },
+});
+```
+
+### 14.9 `apps/frontend/tsconfig.json`
+
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "noEmit": true,
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": ["src", "vite.config.ts", "vitest.config.ts"]
+}
+```
+
+`apps/frontend/tsconfig.node.json`:
+```json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "module": "ESNext", "moduleResolution": "Bundler", "noEmit": true },
+  "include": ["vite.config.ts"]
+}
+```
+
+### 14.10 `apps/frontend/vitest.config.ts`
+
+```ts
+import { defineConfig, mergeConfig } from 'vitest/config';
+import viteConfig from './vite.config';
+
+export default mergeConfig(viteConfig, defineConfig({
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    css: false,
+  },
+}));
+```
+
+`src/test/setup.ts`:
+```ts
+import '@testing-library/jest-dom';
+```
+
+### 14.11 Frontend smoke test
+
+Place at `src/test/AppShell.smoke.test.tsx`:
+```ts
+import { render, screen } from '@testing-library/react';
+import { describe, it, expect } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AppShell } from '../layout/AppShell';
+
+describe('AppShell', () => {
+  it('renders nav groups', () => {
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter><AppShell /></MemoryRouter>
+      </QueryClientProvider>
+    );
+    expect(screen.getByText(/Today/i)).toBeInTheDocument();
+    expect(screen.getByText(/Insights/i)).toBeInTheDocument();
+  });
+});
+```
+
 ---
 
 ## 15. Phasing for execution
@@ -1161,13 +1646,14 @@ Implementer executes in this order, committing after each phase passes a smoke t
 1. **Phase 0** — Workspace files (§3), shared package skeleton (§4 minimal types), git init, first commit.
 2. **Phase 1a** — Backend skeleton: app.module, config, logging, auth stub, health endpoint. Commit. `pnpm --filter backend run dev` should boot and `GET /api/health` should return `{ ok: true }`.
 3. **Phase 1b** — Database module + entities + initial migration. `pnpm db:migrate` should create the schema and tables. Commit.
-4. **Phase 2** — Claude service + prompt registry. Commit.
-5. **Phase 3** — Connectors core (interface, registry, scheduler stub, post-summary pipeline scaffold), connectors controller with CRUD only. Commit. `POST /api/connectors` should create a row.
-6. **Phase 4** — Slack connector. Commit when daily summary writes successfully against a real token.
-7. **Phase 5** — Outlook connector. Commit when daily summary writes successfully.
-8. **Phase 6** — Frontend skeleton: vite + MUI + router + layout + nav. Commit. `pnpm --filter frontend run dev` should serve on 5173.
-9. **Phase 7** — One page at a time: Connectors → Daily → Weekly → Risks/Actions → People insights → Team insights. Commit per page.
-10. **Phase 8** — Pre-desktop / pre-multi-user audit. Add an `electron/` notes section to README.
+4. **Phase 1c** — `/api/me` GET + PATCH endpoints; `MeModule` + `MeService`; onboarding-gate behavior in cron stubs (no-op when not onboarded). Commit when `curl PATCH /api/me` round-trips.
+5. **Phase 2** — Claude service + prompt registry. Commit.
+6. **Phase 3** — Connectors core (interface, registry, scheduler stub, post-summary pipeline scaffold), connectors controller with CRUD only. Commit. `POST /api/connectors` should create a row (returns 409 until onboarded).
+7. **Phase 4** — Slack connector. Commit when daily summary writes successfully against a real token.
+8. **Phase 5** — Outlook connector. Commit when daily summary writes successfully.
+9. **Phase 6** — Frontend skeleton: vite + MUI + router + layout + nav + onboarding gate. Commit. `pnpm --filter frontend run dev` should serve on 5173 and route to `/onboarding` on first load.
+10. **Phase 7** — One page at a time: Onboarding → Profile → Connectors → Daily → Weekly → Risks/Actions → People insights → Team insights. Commit per page.
+11. **Phase 8** — Pre-desktop / pre-multi-user audit. Add an `electron/` notes section to README.
 
 ---
 
@@ -1175,8 +1661,9 @@ Implementer executes in this order, committing after each phase passes a smoke t
 
 The implementer must verify before committing:
 
-- **Phase 1a:** `curl localhost:3000/api/health` → `{ ok: true }`
-- **Phase 1b:** Connect with `psql` → `SELECT * FROM kuros_manager.users;` returns the seed row.
+- **Phase 1a:** `curl localhost:3000/api/health` → `{ ok: true, version: ... }`
+- **Phase 1b:** Connect with `psql` → `SELECT id,email,timezone,name FROM kuros_manager.users;` returns the seed row with id `00000000-…01` and NULL email/timezone/name.
+- **Phase 1c:** `curl GET /api/me` returns `{ onboarded: false, ... }`. `curl -X PATCH /api/me -d '{"email":"x@y.z","timezone":"UTC","name":"X"}'` returns `{ onboarded: true, ... }`. Re-running `GET /api/me` reflects the new values. Trigger a cron job manually (or wait): when `onboarded=false`, log line `awaiting_onboarding` is emitted and no Anthropic call is made.
 - **Phase 2:** A test command (e.g. `pnpm --filter backend run claude:smoke`) hits Claude and prints output. (Add a simple CLI script under `apps/backend/scripts/claude-smoke.ts`.)
 - **Phase 3:** `POST /api/connectors` with valid Slack body returns 201; row persists; `GET /api/connectors/:id` redacts `botToken`.
 - **Phase 4:** Trigger `POST /api/connectors/:id/sync` → see `RawItem`s collected on disk; trigger daily fanout → markdown file appears; DB `summaries` row created.
@@ -1203,4 +1690,22 @@ To prevent scope creep and corresponding hallucinations:
 - CI / GitHub Actions
 - Electron/Tauri wrapping — only a doc note
 
-When the implementer encounters a feature gap that feels essential, it should be added to a "Phase 9 backlog" section in this document, **not implemented opportunistically**.
+When the implementer encounters a feature gap that feels essential, it should be added to the Phase 9 backlog (§18 below), **not implemented opportunistically**.
+
+---
+
+## 18. Phase 9 backlog
+
+Items deferred from v1, captured here so they aren't forgotten and aren't done opportunistically. Append to this list — do not delete entries when starting work; move them into a phase plan instead.
+
+- **Slack push events.** Re-introduce `@slack/bolt` + Socket Mode for real-time event handling (mentions, message-edited, etc.). Lifecycle: one `App` per active connector, started on `onModuleInit` and on connector creation, stopped on delete/pause.
+- **Auto-extraction of people from raw items.** When a Slack message or Outlook mail comes in with a new author, upsert a `people` row (with `slackUserId` or `outlookAddress` populated). Heuristic match against existing `people.email` to dedupe.
+- **Multi-folder Outlook monitoring.** Today, one `outlook` connector watches one folder. Lift this to N folders per connector with one delta cursor each.
+- **Connector config encryption-at-rest.** Move `connectors.config` from plain `jsonb` to AES-GCM-encrypted blob with a key from env or OS keychain.
+- **Real auth.** Replace `auth.guard.ts` stub with JWT or session auth; populate `req.user` from claims.
+- **WebSocket / SSE push.** Replace TanStack Query polling for summaries / action items with server-pushed invalidation.
+- **Pre-built corpus index for insights.** Today the team/person corpus build does a `LIKE` over markdown files; replace with a denormalized index keyed by `(personId, summaryId)`.
+- **CI / GitHub Actions.** Lint + typecheck + Vitest + backend Jest on PR.
+- **Electron/Tauri wrapping.** Materialize the documentation note in §17 into an actual desktop build.
+- **Hosted multi-user mode.** `S3Storage` impl, real auth, BullMQ scheduler with Redis.
+- **Production CORS rules.** Today `production` mode boots with CORS off (§7.2). Add explicit `KUROS_ALLOWED_ORIGIN` handling once hosted mode is real.

@@ -7,7 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-@Entity({ schema: 'kuros_manager', name: 'people' })
+@Entity({ name: 'people' })
 @Index('idx_people_user_id', ['userId'])
 export class PersonEntity {
   @PrimaryGeneratedColumn('uuid')

@@ -11,12 +11,14 @@ import {
   Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import type { ConnectorDto } from '@kuros/shared';
 import {
   useConnectors,
   useCreateConnector,
   useDeleteConnector,
   useSyncConnector,
   useTestConnector,
+  useUpdateConnector,
 } from '../api/hooks/connectors';
 import { StatusChip } from '../components/StatusChip';
 import { EmptyState } from '../components/EmptyState';
@@ -24,9 +26,11 @@ import { ConnectorForm } from './connectors/ConnectorForm';
 
 export function ConnectorsPage(): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [editingConnector, setEditingConnector] = useState<ConnectorDto | null>(null);
   const [testResult, setTestResult] = useState<{ id: string; ok: boolean; message?: string; deviceCode?: { userCode: string; verificationUri: string; expiresAt: string } } | null>(null);
   const list = useConnectors();
   const create = useCreateConnector();
+  const update = useUpdateConnector();
   const del = useDeleteConnector();
   const test = useTestConnector();
   const sync = useSyncConnector();
@@ -80,6 +84,9 @@ export function ConnectorsPage(): JSX.Element {
               )}
             </CardContent>
             <CardActions>
+              <Button size="small" onClick={() => setEditingConnector(c)}>
+                Edit
+              </Button>
               <Button
                 size="small"
                 onClick={async () => {
@@ -113,6 +120,33 @@ export function ConnectorsPage(): JSX.Element {
             onCancel={() => setOpen(false)}
             submitting={create.isPending}
           />
+        </Box>
+      </Drawer>
+
+      <Drawer anchor="right" open={!!editingConnector} onClose={() => setEditingConnector(null)}>
+        <Box sx={{ width: 480, p: 3 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Edit connector
+          </Typography>
+          {editingConnector && (
+            <ConnectorForm
+              initial={{
+                kind: editingConnector.kind,
+                name: editingConnector.name,
+                config: editingConnector.config as Record<string, unknown>,
+              }}
+              readonlyKind
+              onSubmit={async (values) => {
+                const config = Object.fromEntries(
+                  Object.entries(values.config).filter(([, v]) => v !== '***'),
+                );
+                await update.mutateAsync({ id: editingConnector.id, body: { name: values.name, config } });
+                setEditingConnector(null);
+              }}
+              onCancel={() => setEditingConnector(null)}
+              submitting={update.isPending}
+            />
+          )}
         </Box>
       </Drawer>
     </Box>

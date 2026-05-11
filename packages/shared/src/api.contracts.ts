@@ -36,3 +36,10 @@ export interface UpdateUserSettingsRequest {
   claudeModelDeep?: string;
 }
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
+

@@ -6,6 +6,9 @@ import { ActionItemEntity } from '../entities/action-item.entity';
 import { RiskEntity } from '../entities/risk.entity';
 import { SummaryEntity } from '../entities/summary.entity';
 import { UserEntity } from '../entities/user.entity';
+import { PersonEntity } from '../entities/person.entity';
+import { TeamEntity } from '../entities/team.entity';
+import { TeamMemberEntity } from '../entities/team-member.entity';
 import { MeModule } from '../me/me.module';
 import { ConnectorsController } from './connectors.controller';
 import { ConnectorsService } from './connectors.service';
@@ -22,6 +25,9 @@ import { PostSummaryPipeline } from './post-summary.pipeline';
       RiskEntity,
       SummaryEntity,
       UserEntity,
+      PersonEntity,
+      TeamEntity,
+      TeamMemberEntity,
     ]),
     MeModule,
   ],

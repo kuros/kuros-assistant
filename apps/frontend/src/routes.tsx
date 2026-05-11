@@ -1,11 +1,15 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { AppShell } from './layout/AppShell';
 import { ConnectorsPage } from './pages/ConnectorsPage';
+import { ConnectorDailySummaryPage } from './pages/ConnectorDailySummaryPage';
 import { DailySummaryPage } from './pages/DailySummaryPage';
 import { WeeklySummaryPage } from './pages/WeeklySummaryPage';
 import { RisksActionsPage } from './pages/RisksActionsPage';
+import { ArchivePage } from './pages/ArchivePage';
 import { PersonInsightsPage } from './pages/PersonInsightsPage';
 import { TeamInsightsPage } from './pages/TeamInsightsPage';
+import { PeoplePage } from './pages/PeoplePage';
+import { TeamsPage } from './pages/TeamsPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { AiSettingsPage } from './pages/AiSettingsPage';
@@ -27,12 +31,16 @@ export function buildRouter(props: { mode: 'light' | 'dark'; onToggleMode: () =>
       children: [
         { index: true, element: <Navigate to="/daily" replace /> },
         { path: 'daily', element: <DailySummaryPage /> },
+        { path: 'daily/connectors/:connectorId', element: <ConnectorDailySummaryPage /> },
         { path: 'weekly', element: <WeeklySummaryPage /> },
         { path: 'risks-actions', element: <RisksActionsPage /> },
+        { path: 'archive', element: <ArchivePage /> },
         { path: 'insights/people', element: <PersonInsightsPage /> },
         { path: 'insights/people/:personId', element: <PersonInsightsPage /> },
         { path: 'insights/teams', element: <TeamInsightsPage /> },
         { path: 'insights/teams/:teamId', element: <TeamInsightsPage /> },
+        { path: 'people', element: <PeoplePage /> },
+        { path: 'teams', element: <TeamsPage /> },
         { path: 'connectors', element: <ConnectorsPage /> },
         { path: 'connectors/new', element: <ConnectorsPage /> },
         { path: 'connectors/:id', element: <ConnectorsPage /> },

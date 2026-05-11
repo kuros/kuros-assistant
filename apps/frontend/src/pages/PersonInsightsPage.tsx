@@ -7,9 +7,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import SyncIcon from '@mui/icons-material/Sync';
 import { format, subDays } from 'date-fns';
 import { usePeople } from '../api/hooks/people';
 import { useGenerateInsight, useInsight } from '../api/hooks/insights';
+import { useSyncAllConnectors } from '../api/hooks/connectors';
 import { MarkdownView } from '../components/MarkdownView';
 import { EmptyState } from '../components/EmptyState';
 
@@ -20,12 +22,22 @@ export function PersonInsightsPage(): JSX.Element {
   const [to, setTo] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const generate = useGenerateInsight();
   const insight = useInsight(personId ? { scope: 'person', scopeId: personId, from, to } : null);
+  const syncAll = useSyncAllConnectors();
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>
-        Person insights
-      </Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+        <Typography variant="h5">Person insights</Typography>
+        <Button
+          startIcon={<SyncIcon />}
+          variant="outlined"
+          size="small"
+          disabled={syncAll.isPending}
+          onClick={() => syncAll.mutate()}
+        >
+          {syncAll.isPending ? 'Syncing…' : 'Sync now'}
+        </Button>
+      </Stack>
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>
         <Autocomplete
           options={people.data ?? []}

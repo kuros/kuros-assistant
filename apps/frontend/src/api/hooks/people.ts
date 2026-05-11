@@ -26,3 +26,11 @@ export function useUpdatePerson() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['people'] }),
   });
 }
+
+export function useDeletePerson() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<void>(`/api/people/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['people'] }),
+  });
+}

@@ -1,4 +1,4 @@
-import { AppBar, Box, CssBaseline, Drawer, IconButton, Toolbar, Typography, useTheme } from '@mui/material';
+import { AppBar, Box, CssBaseline, Divider, Drawer, IconButton, Toolbar, Typography, useTheme } from '@mui/material';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import { Outlet } from 'react-router-dom';
@@ -29,6 +29,7 @@ export function AppShell({ mode, onToggleMode }: AppShellProps): JSX.Element {
             {mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
           </IconButton>
         </Toolbar>
+        <Divider />
       </AppBar>
       <Drawer
         variant="permanent"

@@ -1,4 +1,14 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "paths": {
+      "@kuros/shared": ["../../packages/shared/dist/index"],
+      "@kuros/shared/*": ["../../packages/shared/dist/*"]
+    }
+  },
   "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "scripts"]
 }

@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query } from '@nest
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, FindOptionsWhere, In, Repository } from 'typeorm';
 import { ActionItemEntity } from '../entities/action-item.entity';
-import type { ActionItemDto, ActionItemStatus } from '@kuros/shared';
+import type { ActionItemDto, ActionItemStatus, PaginatedResponse } from '@kuros/shared';
 import { CurrentUser, AuthenticatedUser } from '../common/auth/current-user.decorator';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 
@@ -43,15 +43,24 @@ export class ActionItemsController {
     @Query('status') status?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-  ): Promise<ActionItemDto[]> {
+    @Query('page') pageStr?: string,
+    @Query('limit') limitStr?: string,
+  ): Promise<PaginatedResponse<ActionItemDto>> {
     const where: FindOptionsWhere<ActionItemEntity> = { userId: user.id };
     if (status) {
       const list = status.split(',') as ActionItemStatus[];
       where.status = list.length > 1 ? In(list) : list[0];
     }
     if (from && to) where.dueDate = Between(from, to);
-    const rows = await this.repo.find({ where, order: { createdAt: 'DESC' } });
-    return rows.map((r) => this.toDto(r));
+    const page = Math.max(1, parseInt(pageStr ?? '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(limitStr ?? '200', 10) || 200));
+    const [rows, total] = await this.repo.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return { data: rows.map((r) => this.toDto(r)), total, page, limit };
   }
 
   @Patch(':id')

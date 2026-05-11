@@ -38,12 +38,12 @@ export function useCreateConnector() {
   });
 }
 
-export function useUpdateConnector(id: string) {
+export function useUpdateConnector() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: UpdateConnectorRequest) =>
+    mutationFn: ({ id, body }: { id: string; body: UpdateConnectorRequest }) =>
       api<ConnectorDto>(`/api/connectors/${id}`, { method: 'PATCH', body }),
-    onSuccess: () => {
+    onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: connectorsKeys.all });
       qc.invalidateQueries({ queryKey: connectorsKeys.detail(id) });
     },
@@ -69,5 +69,11 @@ export function useSyncConnector() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: SyncConnectorRequest }) =>
       api<SyncConnectorResponse>(`/api/connectors/${id}/sync`, { method: 'POST', body }),
+  });
+}
+
+export function useSyncAllConnectors() {
+  return useMutation({
+    mutationFn: () => api<SyncConnectorResponse>('/api/connectors/sync', { method: 'POST' }),
   });
 }

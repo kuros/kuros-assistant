@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PersonEntity } from '../entities/person.entity';
@@ -70,5 +70,14 @@ export class PeopleController {
     const row = await this.repo.findOneOrFail({ where: { id, userId: user.id } });
     Object.assign(row, dto);
     return this.toDto(await this.repo.save(row));
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    await this.repo.delete({ id, userId: user.id });
   }
 }

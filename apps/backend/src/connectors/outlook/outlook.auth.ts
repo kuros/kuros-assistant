@@ -1,6 +1,6 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { PublicClientApplication, type Configuration, type AuthenticationResult } from '@azure/msal-node';
-import { STORAGE, type StorageService } from '../storage/storage.service';
+import { STORAGE, type StorageService } from '../../storage/storage.service';
 
 const SCOPES = ['Mail.Read', 'User.Read', 'offline_access'];
 

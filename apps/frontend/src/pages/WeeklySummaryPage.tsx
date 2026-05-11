@@ -4,13 +4,16 @@ import {
   AccordionDetails,
   AccordionSummary,
   Box,
+  Button,
   Stack,
   TextField,
   Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import SyncIcon from '@mui/icons-material/Sync';
 import { format, getISOWeek, getISOWeekYear } from 'date-fns';
 import { useWeeklySummaries } from '../api/hooks/summaries';
+import { useSyncAllConnectors } from '../api/hooks/connectors';
 import { MarkdownView } from '../components/MarkdownView';
 import { EmptyState } from '../components/EmptyState';
 
@@ -22,18 +25,30 @@ function currentISOWeek(): string {
 export function WeeklySummaryPage(): JSX.Element {
   const [isoWeek, setIsoWeek] = useState<string>(currentISOWeek());
   const q = useWeeklySummaries({ isoWeek });
+  const syncAll = useSyncAllConnectors();
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-        <Typography variant="h5">Weekly summary</Typography>
-        <TextField
-          type="week"
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
+        <Stack direction="row" alignItems="center" spacing={2}>
+          <Typography variant="h5">Weekly summary</Typography>
+          <TextField
+            type="week"
+            size="small"
+            value={isoWeek}
+            onChange={(e) => setIsoWeek(e.target.value)}
+            helperText={`Current: ${format(new Date(), 'yyyy-MM-dd')}`}
+          />
+        </Stack>
+        <Button
+          startIcon={<SyncIcon />}
+          variant="outlined"
           size="small"
-          value={isoWeek}
-          onChange={(e) => setIsoWeek(e.target.value)}
-          helperText={`Current: ${format(new Date(), 'yyyy-MM-dd')}`}
-        />
+          disabled={syncAll.isPending}
+          onClick={() => syncAll.mutate()}
+        >
+          {syncAll.isPending ? 'Syncing…' : 'Sync now'}
+        </Button>
       </Stack>
 
       {q.isLoading && <Typography>Loading…</Typography>}

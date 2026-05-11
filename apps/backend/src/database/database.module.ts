@@ -14,7 +14,6 @@ import * as path from 'node:path';
         username: cfg.get<string>('DB_USER'),
         password: cfg.get<string>('DB_PASSWORD'),
         database: cfg.get<string>('DB_NAME'),
-        schema: cfg.get<string>('DB_SCHEMA'),
         entities: [path.join(__dirname, '..', 'entities', '*.entity.{ts,js}')],
         migrations: [path.join(__dirname, 'migrations', '*.{ts,js}')],
         synchronize: false,

@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import type { RiskSeverity, RiskStatus } from '@kuros/shared';
 
-@Entity({ schema: 'kuros_manager', name: 'risks' })
+@Entity({ name: 'risks' })
 @Index('idx_risks_user_id', ['userId'])
 export class RiskEntity {
   @PrimaryGeneratedColumn('uuid')

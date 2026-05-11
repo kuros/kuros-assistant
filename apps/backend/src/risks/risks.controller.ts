@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query } from '@nest
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, FindOptionsWhere, In, Repository } from 'typeorm';
 import { RiskEntity } from '../entities/risk.entity';
-import type { RiskDto, RiskSeverity, RiskStatus } from '@kuros/shared';
+import type { PaginatedResponse, RiskDto, RiskSeverity, RiskStatus } from '@kuros/shared';
 import { CurrentUser, AuthenticatedUser } from '../common/auth/current-user.decorator';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 
@@ -43,7 +43,9 @@ export class RisksController {
     @Query('severity') severity?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-  ): Promise<RiskDto[]> {
+    @Query('page') pageStr?: string,
+    @Query('limit') limitStr?: string,
+  ): Promise<PaginatedResponse<RiskDto>> {
     const where: FindOptionsWhere<RiskEntity> = { userId: user.id };
     if (status) {
       const list = status.split(',') as RiskStatus[];
@@ -54,8 +56,15 @@ export class RisksController {
       where.severity = list.length > 1 ? In(list) : list[0];
     }
     if (from && to) where.createdAt = Between(new Date(from), new Date(to));
-    const rows = await this.repo.find({ where, order: { createdAt: 'DESC' } });
-    return rows.map((r) => this.toDto(r));
+    const page = Math.max(1, parseInt(pageStr ?? '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(limitStr ?? '200', 10) || 200));
+    const [rows, total] = await this.repo.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return { data: rows.map((r) => this.toDto(r)), total, page, limit };
   }
 
   @Patch(':id')

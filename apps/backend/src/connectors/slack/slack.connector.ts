@@ -1,9 +1,9 @@
 import { Injectable, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Connector, type ConnectorTestResult, type SyncResult } from '../connectors/connector.interface';
-import { ConnectorRegistry } from '../connectors/connector.registry';
-import { ConnectorEntity } from '../entities/connector.entity';
+import { Connector, type ConnectorTestResult, type SyncResult } from '../connector.interface';
+import { ConnectorRegistry } from '../connector.registry';
+import { ConnectorEntity } from '../../entities/connector.entity';
 import { slackConfigSchema, type SlackConfigParsed } from './slack.types';
 import { SlackClient } from './slack.client';
 
@@ -39,7 +39,7 @@ export class SlackConnector extends Connector implements OnModuleInit {
 
   async test(connectorId: string): Promise<ConnectorTestResult> {
     const cfg = await this.loadConfig(connectorId);
-    const client = new SlackClient(cfg.botToken);
+    const client = new SlackClient(cfg.token);
     try {
       const r = await client.authTest();
       return { ok: true, message: `Connected to team ${r.teamId} as user ${r.userId}` };
@@ -55,7 +55,7 @@ export class SlackConnector extends Connector implements OnModuleInit {
 
   async labelForTarget(connectorId: string, targetId: string): Promise<string> {
     const cfg = await this.loadConfig(connectorId);
-    const client = new SlackClient(cfg.botToken);
+    const client = new SlackClient(cfg.token);
     return client.channelName(targetId);
   }
 
@@ -65,7 +65,7 @@ export class SlackConnector extends Connector implements OnModuleInit {
     sinceCursor: string | null;
   }): Promise<SyncResult> {
     const cfg = await this.loadConfig(args.connectorId);
-    const client = new SlackClient(cfg.botToken);
+    const client = new SlackClient(cfg.token);
     const { messages, latestTs } = await client.historySince(
       args.targetId,
       args.sinceCursor ?? undefined,

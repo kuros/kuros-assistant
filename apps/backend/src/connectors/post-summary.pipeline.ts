@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ActionItemEntity } from '../entities/action-item.entity';
@@ -10,8 +10,8 @@ import {
   actionItemsSchema,
   risksPrompt,
   risksSchema,
+  type UserContext,
 } from '../claude/prompts';
-import { Inject } from '@nestjs/common';
 import { STORAGE, type StorageService } from '../storage/storage.service';
 import { paths } from '../storage/path-builder';
 
@@ -32,12 +32,13 @@ export class PostSummaryPipeline {
     period: string;
     userId: string;
     day: Date;
+    userCtx: UserContext;
   }): Promise<void> {
     const markdown = await this.storage.read(args.summary.filePath);
 
     try {
       const { data: ai } = await this.claude.extractStructured(args.userId, {
-        system: actionItemsPrompt.system,
+        system: actionItemsPrompt.system(args.userCtx),
         user: actionItemsPrompt.user({
           sourceLabel: args.sourceLabel,
           period: args.period,
@@ -67,7 +68,7 @@ export class PostSummaryPipeline {
 
     try {
       const { data: rk } = await this.claude.extractStructured(args.userId, {
-        system: risksPrompt.system,
+        system: risksPrompt.system(args.userCtx),
         user: risksPrompt.user({
           sourceLabel: args.sourceLabel,
           period: args.period,

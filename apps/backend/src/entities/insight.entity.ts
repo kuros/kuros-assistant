@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import type { InsightScope } from '@kuros/shared';
 
-@Entity({ schema: 'kuros_manager', name: 'insights' })
+@Entity({ name: 'insights' })
 @Index('idx_insights_user_id', ['userId'])
 @Unique('uq_insights_scope_period', ['userId', 'scope', 'scopeRef', 'periodStart', 'periodEnd'])
 export class InsightEntity {

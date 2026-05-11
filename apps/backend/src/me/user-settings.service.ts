@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import Anthropic from '@anthropic-ai/sdk';
 import { UserSettingsEntity } from '../entities/user-settings.entity';
 import type { UserSettingsDto } from '@kuros/shared';
 
@@ -45,6 +46,23 @@ export class UserSettingsService {
   async getRawApiKey(userId: string): Promise<string | null> {
     const row = await this.repo.findOne({ where: { userId } });
     return row?.anthropicApiKey ?? null;
+  }
+
+  async testKey(userId: string, overrideKey?: string): Promise<{ ok: boolean; error?: string }> {
+    const key = overrideKey ?? (await this.getRawApiKey(userId));
+    if (!key) return { ok: false, error: 'No API key configured' };
+    try {
+      const client = new Anthropic({ apiKey: key });
+      await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      return { ok: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return { ok: false, error: msg };
+    }
   }
 
   async getEffective(

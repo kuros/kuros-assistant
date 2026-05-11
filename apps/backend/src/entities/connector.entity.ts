@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import type { ConnectorKind, ConnectorStatus } from '@kuros/shared';
 
-@Entity({ schema: 'kuros_manager', name: 'connectors' })
+@Entity({ name: 'connectors' })
 @Index('idx_connectors_user_id', ['userId'])
 export class ConnectorEntity {
   @PrimaryGeneratedColumn('uuid')

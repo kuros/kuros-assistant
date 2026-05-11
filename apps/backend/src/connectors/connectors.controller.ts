@@ -79,6 +79,18 @@ export class ConnectorsController {
     return connector.test(row.id);
   }
 
+  @Post('sync')
+  async syncAll(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<SyncConnectorResponse> {
+    const rows = await this.service.listRaw(user.id);
+    let queued = 0;
+    for (const row of rows.filter((r) => r.status === 'active')) {
+      queued += await this.scheduler.runSyncForConnector(row);
+    }
+    return { queued };
+  }
+
   @Post(':id/sync')
   async sync(
     @CurrentUser() user: AuthenticatedUser,
