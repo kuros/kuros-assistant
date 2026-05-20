@@ -11,8 +11,9 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SyncIcon from '@mui/icons-material/Sync';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { format, getISOWeek, getISOWeekYear } from 'date-fns';
-import { useWeeklySummaries } from '../api/hooks/summaries';
+import { useGenerateWeeklySummaries, useWeeklySummaries } from '../api/hooks/summaries';
 import { useSyncAllConnectors } from '../api/hooks/connectors';
 import { MarkdownView } from '../components/MarkdownView';
 import { EmptyState } from '../components/EmptyState';
@@ -26,6 +27,7 @@ export function WeeklySummaryPage(): JSX.Element {
   const [isoWeek, setIsoWeek] = useState<string>(currentISOWeek());
   const q = useWeeklySummaries({ isoWeek });
   const syncAll = useSyncAllConnectors();
+  const generate = useGenerateWeeklySummaries();
 
   return (
     <Box>
@@ -40,15 +42,26 @@ export function WeeklySummaryPage(): JSX.Element {
             helperText={`Current: ${format(new Date(), 'yyyy-MM-dd')}`}
           />
         </Stack>
-        <Button
-          startIcon={<SyncIcon />}
-          variant="outlined"
-          size="small"
-          disabled={syncAll.isPending}
-          onClick={() => syncAll.mutate()}
-        >
-          {syncAll.isPending ? 'Syncing…' : 'Sync now'}
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button
+            startIcon={<SyncIcon />}
+            variant="outlined"
+            size="small"
+            disabled={syncAll.isPending}
+            onClick={() => syncAll.mutate()}
+          >
+            {syncAll.isPending ? 'Syncing…' : 'Sync now'}
+          </Button>
+          <Button
+            startIcon={<AutoAwesomeIcon />}
+            variant="contained"
+            size="small"
+            disabled={generate.isPending}
+            onClick={() => generate.mutate({ isoWeek })}
+          >
+            {generate.isPending ? 'Generating…' : 'Generate summary'}
+          </Button>
+        </Stack>
       </Stack>
 
       {q.isLoading && <Typography>Loading…</Typography>}

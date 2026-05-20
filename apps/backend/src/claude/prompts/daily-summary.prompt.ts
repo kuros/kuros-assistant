@@ -38,6 +38,7 @@ Rules:
 - Do not invent facts.
 - Quote sparingly; prefer paraphrase.
 - Use first names only when referring to people.
+- Use Names instead of ids
 - If the input is empty or only auto-generated noise, return only "# Daily summary — ${args.date} — ${args.sourceLabel}\\n\\n_No substantive activity._"`;
   },
 

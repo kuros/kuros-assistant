@@ -7,7 +7,7 @@ import { ConnectorEntity } from '../../entities/connector.entity';
 import { jiraConfigSchema, type JiraConfigParsed } from './jira.types';
 
 type JiraDescription = { content?: { content?: { text?: string }[] }[] };
-import { JiraClient } from './jira.client';
+import { JiraClient, type JiraComment } from './jira.client';
 
 function extractText(description: unknown): string {
   if (!description || typeof description !== 'object') return '';
@@ -17,6 +17,21 @@ function extractText(description: unknown): string {
     .map((node) => node.text ?? '')
     .join(' ')
     .trim();
+}
+
+function formatComments(comments: JiraComment[]): string {
+  if (comments.length === 0) return '';
+  const lines = comments
+    .map((c) => {
+      const author = c.author?.displayName ?? c.author?.emailAddress ?? 'Unknown';
+      const date = (c.created ?? '').slice(0, 10);
+      const body = extractText(c.body);
+      if (!body) return null;
+      return `- ${author} (${date}): ${body}`;
+    })
+    .filter((l): l is string => l !== null);
+  if (lines.length === 0) return '';
+  return `Comments:\n${lines.join('\n')}`;
 }
 
 @Injectable()
@@ -94,29 +109,51 @@ export class JiraConnector extends Connector implements OnModuleInit {
       (i) => new Date(i.fields.updated).getTime() > cursorMs,
     );
 
-    const items = newIssues.map((issue) => {
-      const f = issue.fields;
-      const body = extractText(f.description);
-      return {
-        id: issue.id,
-        timestamp: new Date(f.updated),
-        author: f.reporter
-          ? {
-              id: f.reporter.accountId,
-              name: f.reporter.displayName,
-              email: f.reporter.emailAddress,
-            }
-          : undefined,
-        text: `[${issue.key}] ${f.summary}${body ? `\n\n${body}` : ''}`,
-        description: f.description,
-        metadata: {
-          key: issue.key,
-          status: f.status.name,
-          priority: f.priority?.name,
-          assignee: f.assignee?.displayName,
-        },
-      };
-    });
+    const items = await Promise.all(
+      newIssues.map(async (issue) => {
+        const f = issue.fields;
+        const body = extractText(f.description);
+
+        const MAX_COMMENTS = 5;
+        let comments: JiraComment[] = f.comment?.comments ?? [];
+        const total = f.comment?.total ?? comments.length;
+        if (total > comments.length) {
+          // Inline list was truncated by the search endpoint; fetch just the latest N.
+          try {
+            comments = await client.latestCommentsForIssue(issue.key, MAX_COMMENTS);
+          } catch {
+            // Fall back to the truncated inline list rather than failing the whole sync.
+          }
+        }
+        // Inline comments come oldest-first, so the tail holds the most recent.
+        comments = comments.slice(-MAX_COMMENTS);
+        const commentBlock = formatComments(comments);
+
+        const sections = [body, commentBlock].filter((s) => s.length > 0);
+        const text = `[${issue.key}] ${f.summary}${sections.length > 0 ? `\n\n${sections.join('\n\n')}` : ''}`;
+
+        return {
+          id: issue.id,
+          timestamp: new Date(f.updated),
+          author: f.reporter
+            ? {
+                id: f.reporter.accountId,
+                name: f.reporter.displayName,
+                email: f.reporter.emailAddress,
+              }
+            : undefined,
+          text,
+          description: f.description,
+          metadata: {
+            key: issue.key,
+            status: f.status.name,
+            priority: f.priority?.name,
+            assignee: f.assignee?.displayName,
+            commentCount: comments.length,
+          },
+        };
+      }),
+    );
 
     // Use Date arithmetic (not string comparison) to find the true latest timestamp.
     // Jira returns offsets like "-0400" which can differ across records, making

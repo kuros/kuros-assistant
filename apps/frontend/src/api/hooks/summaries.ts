@@ -36,6 +36,15 @@ export function useGenerateDailySummaries() {
   });
 }
 
+export function useGenerateWeeklySummaries() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { isoWeek: string }) =>
+      api<{ ok: true }>('/api/summaries/weekly/generate', { method: 'POST', body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['summaries', 'weekly'] }),
+  });
+}
+
 export function useRegenerateDailySummary() {
   const qc = useQueryClient();
   return useMutation({

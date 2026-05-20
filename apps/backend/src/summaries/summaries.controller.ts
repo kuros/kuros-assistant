@@ -40,6 +40,15 @@ export class SummariesController {
     return { ok: true };
   }
 
+  @Post('weekly/generate')
+  async generateWeekly(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { isoWeek: string },
+  ): Promise<{ ok: true }> {
+    await this.scheduler.generateWeeklySummariesForWeek(user.id, body.isoWeek);
+    return { ok: true };
+  }
+
   @Post('daily/regenerate')
   async regenerateDaily(
     @CurrentUser() user: AuthenticatedUser,

@@ -1,3 +1,11 @@
+export interface JiraComment {
+  id: string;
+  author?: { displayName?: string; emailAddress?: string; accountId: string } | null;
+  body?: { content?: { content?: { text?: string }[] }[] } | null;
+  created: string;
+  updated?: string;
+}
+
 export interface JiraIssue {
   id: string;
   key: string;
@@ -9,6 +17,12 @@ export interface JiraIssue {
     status: { name: string };
     priority?: { name: string } | null;
     assignee?: { displayName?: string; emailAddress?: string; accountId: string } | null;
+    comment?: {
+      comments: JiraComment[];
+      total: number;
+      maxResults: number;
+      startAt: number;
+    } | null;
   };
 }
 
@@ -58,19 +72,19 @@ export class JiraClient {
   async searchIssues(
     projectKey: string,
     updatedSince: string | null,
-    startAt = 0,
-  ): Promise<{ issues: JiraIssue[]; total: number; maxResults: number }> {
+    nextPageToken: string | null = null,
+  ): Promise<{ issues: JiraIssue[]; isLast: boolean; nextPageToken?: string }> {
     let jql = `project = "${projectKey}" AND updated >= -1w ORDER BY updated DESC`;
     if (updatedSince) {
       jql = `project = "${projectKey}" AND updated >= "${updatedSince}" ORDER BY updated ASC`;
     }
     const params = new URLSearchParams({
       jql,
-      startAt: String(startAt),
       maxResults: '100',
-      fields: 'summary,description,updated,reporter,status,priority,assignee',
+      fields: 'summary,description,updated,reporter,status,priority,assignee,comment',
     });
-    return this.request<{ issues: JiraIssue[]; total: number; maxResults: number }>(
+    if (nextPageToken) params.set('nextPageToken', nextPageToken);
+    return this.request<{ issues: JiraIssue[]; isLast: boolean; nextPageToken?: string }>(
       `/search/jql?${params.toString()}`,
     );
   }
@@ -80,14 +94,29 @@ export class JiraClient {
     updatedSince: string | null,
   ): Promise<JiraIssue[]> {
     const all: JiraIssue[] = [];
-    let startAt = 0;
-    let total: number | null = null;
-    do {
-      const page = await this.searchIssues(projectKey, updatedSince, startAt);
-      total = page.total;
+    let nextPageToken: string | null = null;
+    for (;;) {
+      const page = await this.searchIssues(projectKey, updatedSince, nextPageToken);
       all.push(...page.issues);
-      startAt += page.maxResults;
-    } while (all.length < (total ?? 0));
+      if (page.isLast || !page.nextPageToken) break;
+      nextPageToken = page.nextPageToken;
+    }
     return all;
+  }
+
+  async latestCommentsForIssue(issueKeyOrId: string, limit: number): Promise<JiraComment[]> {
+    const params = new URLSearchParams({
+      startAt: '0',
+      maxResults: String(limit),
+      orderBy: '-created',
+    });
+    const page = await this.request<{
+      comments: JiraComment[];
+      total: number;
+      maxResults: number;
+      startAt: number;
+    }>(`/issue/${encodeURIComponent(issueKeyOrId)}/comment?${params.toString()}`);
+    // API returns newest-first; reverse so output is chronological (oldest-first).
+    return [...page.comments].reverse();
   }
 }

@@ -3,9 +3,9 @@
   "private": true,
   "version": "0.0.1",
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "TZ=Asia/Kolkata nest start --watch",
     "build": "nest build",
-    "start": "node dist/main.js",
+    "start": "TZ=Asia/Kolkata node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "jest",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",

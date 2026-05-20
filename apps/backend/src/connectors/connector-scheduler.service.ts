@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { toZonedTime } from 'date-fns-tz';
-import { format, startOfISOWeek, endOfISOWeek, subWeeks } from 'date-fns';
+import { format, startOfISOWeek, endOfISOWeek, subWeeks, setISOWeek, setISOWeekYear } from 'date-fns';
 import { ConnectorEntity } from '../entities/connector.entity';
 import { ConnectorSyncStateEntity } from '../entities/connector-sync-state.entity';
 import { SummaryEntity } from '../entities/summary.entity';
@@ -24,6 +24,8 @@ import {
   weeklySummaryPrompt,
   type UserContext,
 } from '../claude/prompts';
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 @Injectable()
 export class ConnectorSchedulerService {
@@ -188,7 +190,7 @@ export class ConnectorSchedulerService {
     }
   }
 
-  @Cron('30 23 * * *')
+  @Cron('30 20 * * *')
   async dailyFanout(): Promise<void> {
     if (!(await this.isOnboarded())) {
       this.logger.log({ job: 'dailyFanout', status: 'awaiting_onboarding' });
@@ -291,17 +293,21 @@ export class ConnectorSchedulerService {
           job: 'dailyFanout', connectorId: c.id, targetId, date: dateStr,
           items: items.length, durationMs: Date.now() - started, ok: true,
         });
+
+        this.logger.log('Wait for 30 sec')
       } catch (err) {
         this.logger.error({
           job: 'dailyFanout', connectorId: c.id, targetId, date: dateStr,
           durationMs: Date.now() - started, ok: false,
           error: err instanceof Error ? err.message : err,
         });
+        await wait(60000);
       }
     }
   }
 
-  @Cron('0 6 * * 1')
+
+  @Cron('0 21 * * 1')
   async weeklyFanout(): Promise<void> {
     if (!(await this.isOnboarded())) {
       this.logger.log({ job: 'weeklyFanout', status: 'awaiting_onboarding' });
@@ -428,6 +434,30 @@ export class ConnectorSchedulerService {
       } catch (err) {
         this.logger.error(
           `generateDailySummariesForDate connector=${c.id} date=${date}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+  }
+
+  async generateWeeklySummariesForWeek(userId: string, isoWeek: string): Promise<void> {
+    const match = /^(\d{4})-W(\d{2})$/.exec(isoWeek);
+    if (!match) throw new Error(`Invalid ISO week: ${isoWeek}`);
+    const year = Number(match[1]);
+    const week = Number(match[2]);
+    const anchor = setISOWeek(setISOWeekYear(new Date(Date.UTC(year, 0, 4)), year), week);
+    const weekStart = startOfISOWeek(anchor);
+    const weekEnd = endOfISOWeek(anchor);
+    const weekStartStr = formatISODate(weekStart);
+    const weekEndStr = formatISODate(weekEnd);
+
+    const userCtx = await this.loadUserContext(userId);
+    const rows = await this.connectors.find({ where: { userId, status: 'active' } });
+    for (const c of rows) {
+      try {
+        await this.runWeeklySummaryForConnector(c, isoWeek, weekStartStr, weekEndStr, weekStart, userCtx);
+      } catch (err) {
+        this.logger.error(
+          `generateWeeklySummariesForWeek connector=${c.id} week=${isoWeek}: ${err instanceof Error ? err.message : err}`,
         );
       }
     }
