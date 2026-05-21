@@ -114,7 +114,7 @@ export class JiraConnector extends Connector implements OnModuleInit {
         const f = issue.fields;
         const body = extractText(f.description);
 
-        const MAX_COMMENTS = 5;
+        const MAX_COMMENTS = 2;
         let comments: JiraComment[] = f.comment?.comments ?? [];
         const total = f.comment?.total ?? comments.length;
         if (total > comments.length) {

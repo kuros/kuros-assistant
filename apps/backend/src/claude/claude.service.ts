@@ -1,7 +1,8 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
-import { z, ZodSchema } from 'zod';
+import { ZodSchema } from 'zod';
 import { ClaudeClientFactory } from './claude-client.factory';
+import { ClaudeCodeRunner } from './claude-code.runner';
 
 export type ClaudeModelTier = 'fast' | 'deep';
 
@@ -27,14 +28,31 @@ export interface ExtractStructuredArgs<T> {
 export class ClaudeService {
   private readonly logger = new Logger(ClaudeService.name);
 
-  constructor(private readonly factory: ClaudeClientFactory) {}
+  constructor(
+    private readonly factory: ClaudeClientFactory,
+    private readonly claudeCode: ClaudeCodeRunner,
+  ) {}
 
   async summarize(
     userId: string,
     args: SummarizeArgs,
   ): Promise<{ text: string; modelUsed: string }> {
-    const { client, modelFast, modelDeep } = await this.factory.getContext(userId);
-    const model = args.model === 'deep' ? modelDeep : modelFast;
+    const ctx = await this.factory.getContext(userId);
+    const model = args.model === 'deep' ? ctx.modelDeep : ctx.modelFast;
+
+    if (ctx.provider === 'claude_code') {
+      try {
+        const text = await this.claudeCode.runText({ system: args.system, user: args.user, model });
+        return { text, modelUsed: `claude-code:${model}` };
+      } catch (err) {
+        this.logger.error(`Claude Code summarize failed: ${err instanceof Error ? err.message : err}`);
+        throw err instanceof InternalServerErrorException
+          ? err
+          : new InternalServerErrorException('Claude Code summarize failed');
+      }
+    }
+
+    const client = ctx.client!;
     try {
       const response = await client.messages.create({
         model,
@@ -59,8 +77,40 @@ export class ClaudeService {
     userId: string,
     args: ExtractStructuredArgs<T>,
   ): Promise<{ data: T; modelUsed: string }> {
-    const { client, modelFast, modelDeep } = await this.factory.getContext(userId);
-    const model = args.model === 'deep' ? modelDeep : modelFast;
+    const ctx = await this.factory.getContext(userId);
+    const model = args.model === 'deep' ? ctx.modelDeep : ctx.modelFast;
+
+    if (ctx.provider === 'claude_code') {
+      try {
+        const schemaForPrompt = JSON.stringify(args.toolInputSchema, null, 2);
+        const systemWithSchema =
+          `${args.system}\n\n` +
+          `You must output a JSON object that conforms to the following JSON schema:\n` +
+          `\`\`\`json\n${schemaForPrompt}\n\`\`\``;
+        const raw = await this.claudeCode.runJson({
+          system: systemWithSchema,
+          user: args.user,
+          model,
+        });
+        const parsed = args.schema.safeParse(raw);
+        if (!parsed.success) {
+          this.logger.warn(
+            `Claude Code tool output failed schema: ${parsed.error.issues
+              .map((i) => `${i.path.join('.')}: ${i.message}`)
+              .join(', ')}`,
+          );
+          throw new Error('Claude Code output did not match schema');
+        }
+        return { data: parsed.data, modelUsed: `claude-code:${model}` };
+      } catch (err) {
+        this.logger.error(`Claude Code extractStructured failed: ${err instanceof Error ? err.message : err}`);
+        throw err instanceof InternalServerErrorException
+          ? err
+          : new InternalServerErrorException('Claude Code extractStructured failed');
+      }
+    }
+
+    const client = ctx.client!;
     try {
       const response = await client.messages.create({
         model,

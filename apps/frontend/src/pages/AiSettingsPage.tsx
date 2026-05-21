@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -8,8 +8,14 @@ import {
   Button,
   CircularProgress,
   Divider,
+  FormControl,
+  FormControlLabel,
+  FormHelperText,
+  FormLabel,
   IconButton,
   InputAdornment,
+  Radio,
+  RadioGroup,
   Snackbar,
   TextField,
   Typography,
@@ -24,6 +30,7 @@ const schema = z.object({
   anthropicApiKey: z.string().optional(),
   claudeModelFast: z.string().min(1, 'Required'),
   claudeModelDeep: z.string().min(1, 'Required'),
+  aiProvider: z.enum(['api', 'claude_code']),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -39,13 +46,20 @@ export function AiSettingsPage() {
     handleSubmit,
     reset,
     watch,
+    control,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { anthropicApiKey: '', claudeModelFast: '', claudeModelDeep: '' },
+    defaultValues: {
+      anthropicApiKey: '',
+      claudeModelFast: '',
+      claudeModelDeep: '',
+      aiProvider: 'api',
+    },
   });
 
   const currentKeyValue = watch('anthropicApiKey');
+  const currentProvider = watch('aiProvider');
 
   useEffect(() => {
     if (settings) {
@@ -53,6 +67,7 @@ export function AiSettingsPage() {
         anthropicApiKey: '',
         claudeModelFast: settings.claudeModelFast,
         claudeModelDeep: settings.claudeModelDeep,
+        aiProvider: settings.aiProvider,
       });
       resetTest();
     }
@@ -61,15 +76,26 @@ export function AiSettingsPage() {
   if (isLoading) return null;
 
   async function onSubmit(values: FormValues) {
-    const payload: { anthropicApiKey?: string; claudeModelFast: string; claudeModelDeep: string } = {
+    const payload: {
+      anthropicApiKey?: string;
+      claudeModelFast: string;
+      claudeModelDeep: string;
+      aiProvider: 'api' | 'claude_code';
+    } = {
       claudeModelFast: values.claudeModelFast,
       claudeModelDeep: values.claudeModelDeep,
+      aiProvider: values.aiProvider,
     };
     if (values.anthropicApiKey && values.anthropicApiKey.length > 0) {
       payload.anthropicApiKey = values.anthropicApiKey;
     }
     await mutateAsync(payload);
-    reset({ anthropicApiKey: '', claudeModelFast: values.claudeModelFast, claudeModelDeep: values.claudeModelDeep });
+    reset({
+      anthropicApiKey: '',
+      claudeModelFast: values.claudeModelFast,
+      claudeModelDeep: values.claudeModelDeep,
+      aiProvider: values.aiProvider,
+    });
     setSaved(true);
   }
 
@@ -90,15 +116,43 @@ export function AiSettingsPage() {
         onSubmit={handleSubmit(onSubmit)}
         sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}
       >
+        <Controller
+          name="aiProvider"
+          control={control}
+          render={({ field }) => (
+            <FormControl>
+              <FormLabel>AI provider</FormLabel>
+              <RadioGroup row {...field}>
+                <FormControlLabel value="api" control={<Radio />} label="Anthropic API" />
+                <FormControlLabel
+                  value="claude_code"
+                  control={<Radio />}
+                  label="Claude Code (local CLI)"
+                />
+              </RadioGroup>
+              <FormHelperText>
+                {currentProvider === 'claude_code'
+                  ? 'Summaries run via the `claude` CLI on this machine using your Claude.ai subscription. No API key needed.'
+                  : 'Summaries call the Anthropic API directly. Requires an API key below.'}
+              </FormHelperText>
+            </FormControl>
+          )}
+        />
+
         <TextField
           label="Anthropic API Key"
           type={showKey ? 'text' : 'password'}
           {...register('anthropicApiKey')}
           placeholder={settings?.hasAnthropicKey ? 'sk-ant-••••••••' : 'sk-ant-...'}
+          disabled={currentProvider === 'claude_code'}
           error={!!errors.anthropicApiKey}
           helperText={
             errors.anthropicApiKey?.message ??
-            (settings?.hasAnthropicKey ? 'Leave blank to keep existing key' : undefined)
+            (currentProvider === 'claude_code'
+              ? 'Not used when Claude Code is selected.'
+              : settings?.hasAnthropicKey
+              ? 'Leave blank to keep existing key'
+              : undefined)
           }
           fullWidth
           InputProps={{
@@ -141,7 +195,9 @@ export function AiSettingsPage() {
         Test Connection
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        {currentKeyValue
+        {currentProvider === 'claude_code'
+          ? 'API key testing is disabled when Claude Code is selected.'
+          : currentKeyValue
           ? 'Tests the key entered above (not yet saved).'
           : settings?.hasAnthropicKey
           ? 'Tests the currently saved API key.'
@@ -151,7 +207,11 @@ export function AiSettingsPage() {
       <Button
         variant="outlined"
         onClick={() => testKey(currentKeyValue || undefined)}
-        disabled={isTesting || (!currentKeyValue && !settings?.hasAnthropicKey)}
+        disabled={
+          isTesting ||
+          currentProvider === 'claude_code' ||
+          (!currentKeyValue && !settings?.hasAnthropicKey)
+        }
         sx={{ alignSelf: 'flex-start' }}
       >
         {isTesting ? <CircularProgress size={20} /> : 'Test Connection'}

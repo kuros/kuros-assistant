@@ -64,6 +64,12 @@ export class ConnectorSchedulerService {
     return key != null && key.length > 0;
   }
 
+  private async isAiConfigured(): Promise<boolean> {
+    const provider = await this.userSettings.getProvider(SINGLE_USER_ID);
+    if (provider === 'claude_code') return true;
+    return this.hasApiKey();
+  }
+
   private async withMutex<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
     if (this.mutex.get(key)) {
       this.logger.warn(`Skipping ${key}: previous run still in progress`);
@@ -111,8 +117,8 @@ export class ConnectorSchedulerService {
       this.logger.log({ job: 'syncAll', status: 'awaiting_onboarding' });
       return;
     }
-    if (!(await this.hasApiKey())) {
-      this.logger.warn('syncAll: skipping — Anthropic API key not configured');
+    if (!(await this.isAiConfigured())) {
+      this.logger.warn('syncAll: skipping — AI provider not configured (set API key or switch to Claude Code in AI Settings)');
       return;
     }
     await this.withMutex('syncAll', async () => {
@@ -174,6 +180,19 @@ export class ConnectorSchedulerService {
     return total;
   }
 
+  private dedupeLatestById(items: RawItem[]): RawItem[] {
+    // Same issue can be appended on multiple syncs the same day; keep newest by timestamp.
+    const latest = new Map<string, RawItem>();
+    for (const it of items) {
+      const prev = latest.get(it.id);
+      if (!prev || new Date(it.timestamp).getTime() > new Date(prev.timestamp).getTime()) {
+        latest.set(it.id, it);
+      }
+    }
+    this.logger.log(`Initial count: ${items.length} items, deduped count: ${latest.size}`);
+    return Array.from(latest.values());
+  }
+
   private async persistRawItems(c: ConnectorEntity, targetId: string, items: RawItem[]): Promise<void> {
     if (items.length === 0) return;
     const byDay = new Map<string, RawItem[]>();
@@ -196,8 +215,8 @@ export class ConnectorSchedulerService {
       this.logger.log({ job: 'dailyFanout', status: 'awaiting_onboarding' });
       return;
     }
-    if (!(await this.hasApiKey())) {
-      this.logger.warn('dailyFanout: skipping — Anthropic API key not configured');
+    if (!(await this.isAiConfigured())) {
+      this.logger.warn('dailyFanout: skipping — AI provider not configured (set API key or switch to Claude Code in AI Settings)');
       return;
     }
     await this.withMutex('dailyFanout', async () => {
@@ -240,11 +259,13 @@ export class ConnectorSchedulerService {
         }
 
         const raw = await this.storage.read(rawPath);
-        const items: RawItem[] = raw
+        const rawItems: RawItem[] = raw
           .trim()
           .split('\n')
           .filter(Boolean)
           .map((line) => JSON.parse(line) as RawItem);
+
+        const items = this.dedupeLatestById(rawItems);
 
         if (items.length === 0) continue;
 
@@ -294,13 +315,13 @@ export class ConnectorSchedulerService {
           items: items.length, durationMs: Date.now() - started, ok: true,
         });
 
-        this.logger.log('Wait for 30 sec')
       } catch (err) {
         this.logger.error({
           job: 'dailyFanout', connectorId: c.id, targetId, date: dateStr,
           durationMs: Date.now() - started, ok: false,
           error: err instanceof Error ? err.message : err,
         });
+        this.logger.log('Wait for 60 sec')
         await wait(60000);
       }
     }
@@ -313,8 +334,8 @@ export class ConnectorSchedulerService {
       this.logger.log({ job: 'weeklyFanout', status: 'awaiting_onboarding' });
       return;
     }
-    if (!(await this.hasApiKey())) {
-      this.logger.warn('weeklyFanout: skipping — Anthropic API key not configured');
+    if (!(await this.isAiConfigured())) {
+      this.logger.warn('weeklyFanout: skipping — AI provider not configured (set API key or switch to Claude Code in AI Settings)');
       return;
     }
     await this.withMutex('weeklyFanout', async () => {
@@ -482,11 +503,13 @@ export class ConnectorSchedulerService {
     }
 
     const raw = await this.storage.read(rawPath);
-    const items: RawItem[] = raw
+    const rawItems: RawItem[] = raw
       .trim()
       .split('\n')
       .filter(Boolean)
       .map((line) => JSON.parse(line) as RawItem);
+
+    const items = this.dedupeLatestById(rawItems);
 
     const sourceLabel = await connector.labelForTarget(c.id, args.targetId);
     const { text, modelUsed } = await this.claude.summarize(args.userId, {

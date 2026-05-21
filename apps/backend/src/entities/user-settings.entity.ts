@@ -1,6 +1,8 @@
 import { Column, Entity, JoinColumn, OneToOne, PrimaryColumn } from 'typeorm';
 import { UserEntity } from './user.entity';
 
+export type AiProvider = 'api' | 'claude_code';
+
 @Entity({ name: 'user_settings' })
 export class UserSettingsEntity {
   @PrimaryColumn({ type: 'uuid', name: 'user_id' })
@@ -18,4 +20,7 @@ export class UserSettingsEntity {
 
   @Column({ type: 'text', name: 'claude_model_deep', nullable: true })
   claudeModelDeep!: string | null;
+
+  @Column({ type: 'text', name: 'ai_provider', default: 'api' })
+  aiProvider!: AiProvider;
 }

@@ -11,6 +11,8 @@ export interface SlackHistoryItem {
   user?: string;
   text?: string;
   thread_ts?: string;
+  reply_count?: number;
+  latest_reply?: string;
 }
 
 export class SlackClient {
@@ -62,6 +64,28 @@ export class SlackClient {
       cursor = r.response_metadata?.next_cursor || undefined;
     } while (cursor);
     return { messages, latestTs };
+  }
+
+  async threadReplies(channelId: string, threadTs: string): Promise<SlackHistoryItem[]> {
+    // conversations.replies returns the parent message as the first element followed by replies.
+    // We strip the parent (already returned by history) and return only the replies.
+    const replies: SlackHistoryItem[] = [];
+    let cursor: string | undefined;
+    do {
+      const r = await this.web.conversations.replies({
+        channel: channelId,
+        ts: threadTs,
+        limit: 200,
+        cursor,
+      });
+      const batch = (r.messages ?? []) as SlackHistoryItem[];
+      for (const m of batch) {
+        if (!m.ts || m.ts === threadTs) continue;
+        replies.push(m);
+      }
+      cursor = r.response_metadata?.next_cursor || undefined;
+    } while (cursor);
+    return replies;
   }
 
   async userInfo(userId: string): Promise<SlackUserInfo> {

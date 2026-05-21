@@ -66,7 +66,7 @@ export function OnboardingPage() {
       <Card sx={{ maxWidth: 480, width: '100%' }}>
         <CardContent sx={{ p: 4 }}>
           <Typography variant="h5" fontWeight={700} gutterBottom>
-            Welcome to Kuros Manager
+            Welcome to Kuros Assistant
           </Typography>
           <Typography variant="body2" color="text.secondary" mb={3}>
             Let's set up your profile before we start syncing your data.

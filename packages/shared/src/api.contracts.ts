@@ -24,16 +24,20 @@ export interface UpdateMeRequest {
   name?: string;
 }
 
+export type AiProvider = 'api' | 'claude_code';
+
 export interface UserSettingsDto {
   hasAnthropicKey: boolean;
   claudeModelFast: string;
   claudeModelDeep: string;
+  aiProvider: AiProvider;
 }
 
 export interface UpdateUserSettingsRequest {
   anthropicApiKey?: string;
   claudeModelFast?: string;
   claudeModelDeep?: string;
+  aiProvider?: AiProvider;
 }
 
 export interface PaginatedResponse<T> {

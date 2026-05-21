@@ -23,7 +23,7 @@ export function AppShell({ mode, onToggleMode }: AppShellProps): JSX.Element {
       >
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            Kuros Manager
+            Kuros Assistant
           </Typography>
           <IconButton onClick={onToggleMode} color="inherit" aria-label="toggle theme">
             {mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
