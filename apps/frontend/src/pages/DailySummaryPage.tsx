@@ -9,6 +9,7 @@ import {
   CardHeader,
   Chip,
   Divider,
+  IconButton,
   Stack,
   TextField,
   Typography,
@@ -16,7 +17,9 @@ import {
 import SyncIcon from '@mui/icons-material/Sync';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import { format } from 'date-fns';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { addDays, format, parseISO } from 'date-fns';
 import type { ConnectorDto, SummaryDto } from '@kuros/shared';
 import { useDailySummaries, useGenerateDailySummaries } from '../api/hooks/summaries';
 import { useConnectors, useSyncAllConnectors } from '../api/hooks/connectors';
@@ -52,12 +55,28 @@ export function DailySummaryPage(): JSX.Element {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
         <Stack direction="row" alignItems="center" spacing={2}>
           <Typography variant="h5">Daily summary</Typography>
-          <TextField
-            type="date"
-            size="small"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <IconButton
+              size="small"
+              aria-label="Previous day"
+              onClick={() => setDate(format(addDays(parseISO(date), -1), 'yyyy-MM-dd'))}
+            >
+              <ChevronLeftIcon />
+            </IconButton>
+            <TextField
+              type="date"
+              size="small"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+            <IconButton
+              size="small"
+              aria-label="Next day"
+              onClick={() => setDate(format(addDays(parseISO(date), 1), 'yyyy-MM-dd'))}
+            >
+              <ChevronRightIcon />
+            </IconButton>
+          </Stack>
         </Stack>
         <Stack direction="row" spacing={1}>
           <Button

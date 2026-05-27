@@ -7,6 +7,7 @@ import {
   Box,
   Button,
   Chip,
+  IconButton,
   Stack,
   TextField,
   Typography,
@@ -15,7 +16,9 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { format } from 'date-fns';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { addDays, format, parseISO } from 'date-fns';
 import { useDailySummaries, useGenerateDailySummaries, useRegenerateDailySummary } from '../api/hooks/summaries';
 import { useConnector } from '../api/hooks/connectors';
 import { MarkdownView } from '../components/MarkdownView';
@@ -53,12 +56,28 @@ export function ConnectorDailySummaryPage(): JSX.Element {
               variant="outlined"
             />
           )}
-          <TextField
-            type="date"
-            size="small"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <IconButton
+              size="small"
+              aria-label="Previous day"
+              onClick={() => setDate(format(addDays(parseISO(date), -1), 'yyyy-MM-dd'))}
+            >
+              <ChevronLeftIcon />
+            </IconButton>
+            <TextField
+              type="date"
+              size="small"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+            <IconButton
+              size="small"
+              aria-label="Next day"
+              onClick={() => setDate(format(addDays(parseISO(date), 1), 'yyyy-MM-dd'))}
+            >
+              <ChevronRightIcon />
+            </IconButton>
+          </Stack>
         </Stack>
         <Button
           startIcon={<AutoAwesomeIcon />}

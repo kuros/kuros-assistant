@@ -5,6 +5,7 @@ import {
   AccordionSummary,
   Box,
   Button,
+  IconButton,
   Stack,
   TextField,
   Typography,
@@ -12,7 +13,16 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SyncIcon from '@mui/icons-material/Sync';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import { format, getISOWeek, getISOWeekYear } from 'date-fns';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import {
+  addWeeks,
+  format,
+  getISOWeek,
+  getISOWeekYear,
+  setISOWeek,
+  setISOWeekYear,
+} from 'date-fns';
 import { useGenerateWeeklySummaries, useWeeklySummaries } from '../api/hooks/summaries';
 import { useSyncAllConnectors } from '../api/hooks/connectors';
 import { MarkdownView } from '../components/MarkdownView';
@@ -21,6 +31,14 @@ import { EmptyState } from '../components/EmptyState';
 function currentISOWeek(): string {
   const now = new Date();
   return `${getISOWeekYear(now)}-W${String(getISOWeek(now)).padStart(2, '0')}`;
+}
+
+function shiftISOWeek(isoWeek: string, delta: number): string {
+  const [yearStr, weekStr] = isoWeek.split('-W');
+  let d = setISOWeekYear(new Date(), Number(yearStr));
+  d = setISOWeek(d, Number(weekStr));
+  d = addWeeks(d, delta);
+  return `${getISOWeekYear(d)}-W${String(getISOWeek(d)).padStart(2, '0')}`;
 }
 
 export function WeeklySummaryPage(): JSX.Element {
@@ -34,13 +52,29 @@ export function WeeklySummaryPage(): JSX.Element {
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3 }}>
         <Stack direction="row" alignItems="center" spacing={2}>
           <Typography variant="h5">Weekly summary</Typography>
-          <TextField
-            type="week"
-            size="small"
-            value={isoWeek}
-            onChange={(e) => setIsoWeek(e.target.value)}
-            helperText={`Current: ${format(new Date(), 'yyyy-MM-dd')}`}
-          />
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <IconButton
+              size="small"
+              aria-label="Previous week"
+              onClick={() => setIsoWeek(shiftISOWeek(isoWeek, -1))}
+            >
+              <ChevronLeftIcon />
+            </IconButton>
+            <TextField
+              type="week"
+              size="small"
+              value={isoWeek}
+              onChange={(e) => setIsoWeek(e.target.value)}
+              helperText={`Current: ${format(new Date(), 'yyyy-MM-dd')}`}
+            />
+            <IconButton
+              size="small"
+              aria-label="Next week"
+              onClick={() => setIsoWeek(shiftISOWeek(isoWeek, 1))}
+            >
+              <ChevronRightIcon />
+            </IconButton>
+          </Stack>
         </Stack>
         <Stack direction="row" spacing={1}>
           <Button
