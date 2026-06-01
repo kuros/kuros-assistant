@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -33,7 +32,9 @@ function previewMarkdown(md: string, maxChars = 300): string {
 }
 
 export function DailySummaryPage(): JSX.Element {
-  const [date, setDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [searchParams, setSearchParams] = useSearchParams();
+  const date = searchParams.get('date') ?? format(new Date(), 'yyyy-MM-dd');
+  const setDate = (next: string) => setSearchParams({ date: next });
   const q = useDailySummaries({ date });
   const connectorsQ = useConnectors();
   const syncAll = useSyncAllConnectors();

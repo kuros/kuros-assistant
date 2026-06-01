@@ -7,10 +7,13 @@ import { randomUUID } from 'node:crypto';
 
 const MAX_BUFFER = 50 * 1024 * 1024;
 
+type ClaudeEffort = 'low' | 'medium' | 'high';
+
 interface RunArgs {
   system: string;
   user: string;
   model: string;
+  effort?: ClaudeEffort;
   outputFormat: 'text' | 'json';
 }
 
@@ -26,11 +29,12 @@ interface ClaudeCodeEnvelope {
 export class ClaudeCodeRunner {
   private readonly logger = new Logger(ClaudeCodeRunner.name);
 
-  async runText(args: { system: string; user: string; model: string }): Promise<string> {
+  async runText(args: { system: string; user: string; model: string; effort?: ClaudeEffort }): Promise<string> {
     const envelope = await this.invoke({
       system: args.system,
       user: args.user,
       model: args.model,
+      effort: args.effort,
       outputFormat: 'json',
     });
     if (typeof envelope.result !== 'string') {
@@ -39,7 +43,7 @@ export class ClaudeCodeRunner {
     return envelope.result;
   }
 
-  async runJson(args: { system: string; user: string; model: string }): Promise<unknown> {
+  async runJson(args: { system: string; user: string; model: string; effort?: ClaudeEffort }): Promise<unknown> {
     const userPrompt =
       `${args.user}\n\n` +
       `Respond with ONLY a single JSON object on stdout. ` +
@@ -48,6 +52,7 @@ export class ClaudeCodeRunner {
       system: args.system,
       user: userPrompt,
       model: args.model,
+      effort: args.effort,
       outputFormat: 'json',
     });
     if (typeof envelope.result !== 'string') {
@@ -64,6 +69,7 @@ export class ClaudeCodeRunner {
     const cliArgs = [
       '-p',
       '--model', args.model,
+      ...(args.effort ? ['--effort', args.effort] : []),
       '--append-system-prompt-file', sysPath,
       '--output-format', args.outputFormat,
       '--no-session-persistence',

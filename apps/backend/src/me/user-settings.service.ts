@@ -3,10 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import Anthropic from '@anthropic-ai/sdk';
 import { UserSettingsEntity } from '../entities/user-settings.entity';
-import type { AiProvider, UserSettingsDto } from '@kuros/shared';
+import type { AiProvider, ClaudeEffort, UserSettingsDto } from '@kuros/shared';
 
 const DEFAULT_MODEL_FAST = 'claude-sonnet-4-6';
 const DEFAULT_MODEL_DEEP = 'claude-opus-4-7';
+const DEFAULT_EFFORT_FAST: ClaudeEffort = 'low';
+const DEFAULT_EFFORT_DEEP: ClaudeEffort = 'high';
 const DEFAULT_AI_PROVIDER: AiProvider = 'api';
 
 @Injectable()
@@ -21,6 +23,8 @@ export class UserSettingsService {
       hasAnthropicKey: row?.anthropicApiKey != null && row.anthropicApiKey.length > 0,
       claudeModelFast: row?.claudeModelFast ?? DEFAULT_MODEL_FAST,
       claudeModelDeep: row?.claudeModelDeep ?? DEFAULT_MODEL_DEEP,
+      claudeEffortFast: row?.claudeEffortFast ?? DEFAULT_EFFORT_FAST,
+      claudeEffortDeep: row?.claudeEffortDeep ?? DEFAULT_EFFORT_DEEP,
       aiProvider: row?.aiProvider ?? DEFAULT_AI_PROVIDER,
     };
   }
@@ -36,6 +40,8 @@ export class UserSettingsService {
       anthropicApiKey?: string;
       claudeModelFast?: string;
       claudeModelDeep?: string;
+      claudeEffortFast?: ClaudeEffort;
+      claudeEffortDeep?: ClaudeEffort;
       aiProvider?: AiProvider;
     },
   ): Promise<UserSettingsDto> {
@@ -46,12 +52,16 @@ export class UserSettingsService {
         anthropicApiKey: null,
         claudeModelFast: null,
         claudeModelDeep: null,
+        claudeEffortFast: null,
+        claudeEffortDeep: null,
         aiProvider: DEFAULT_AI_PROVIDER,
       });
     }
     if (dto.anthropicApiKey != null) row.anthropicApiKey = dto.anthropicApiKey;
     if (dto.claudeModelFast != null) row.claudeModelFast = dto.claudeModelFast;
     if (dto.claudeModelDeep != null) row.claudeModelDeep = dto.claudeModelDeep;
+    if (dto.claudeEffortFast != null) row.claudeEffortFast = dto.claudeEffortFast;
+    if (dto.claudeEffortDeep != null) row.claudeEffortDeep = dto.claudeEffortDeep;
     if (dto.aiProvider != null) row.aiProvider = dto.aiProvider;
     await this.repo.save(row);
     return this.toDto(row);
@@ -90,6 +100,8 @@ export class UserSettingsService {
     apiKey: string | null;
     modelFast: string;
     modelDeep: string;
+    effortFast: ClaudeEffort;
+    effortDeep: ClaudeEffort;
     aiProvider: AiProvider;
   }> {
     const row = await this.repo.findOne({ where: { userId } });
@@ -97,6 +109,8 @@ export class UserSettingsService {
       apiKey: row?.anthropicApiKey ?? null,
       modelFast: row?.claudeModelFast ?? DEFAULT_MODEL_FAST,
       modelDeep: row?.claudeModelDeep ?? DEFAULT_MODEL_DEEP,
+      effortFast: row?.claudeEffortFast ?? DEFAULT_EFFORT_FAST,
+      effortDeep: row?.claudeEffortDeep ?? DEFAULT_EFFORT_DEEP,
       aiProvider: row?.aiProvider ?? DEFAULT_AI_PROVIDER,
     };
   }

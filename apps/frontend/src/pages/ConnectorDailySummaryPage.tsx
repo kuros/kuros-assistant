@@ -42,7 +42,7 @@ export function ConnectorDailySummaryPage(): JSX.Element {
 
   return (
     <Box>
-      <Button component={Link} to="/daily" startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 2 }}>
+      <Button component={Link} to={`/daily?date=${date}`} startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 2 }}>
         Daily summary
       </Button>
 

@@ -38,11 +38,13 @@ export class ClaudeService {
     args: SummarizeArgs,
   ): Promise<{ text: string; modelUsed: string }> {
     const ctx = await this.factory.getContext(userId);
-    const model = args.model === 'deep' ? ctx.modelDeep : ctx.modelFast;
+    const isDeep = args.model === 'deep';
+    const model = isDeep ? ctx.modelDeep : ctx.modelFast;
+    const effort = isDeep ? ctx.effortDeep : ctx.effortFast;
 
     if (ctx.provider === 'claude_code') {
       try {
-        const text = await this.claudeCode.runText({ system: args.system, user: args.user, model });
+        const text = await this.claudeCode.runText({ system: args.system, user: args.user, model, effort });
         return { text, modelUsed: `claude-code:${model}` };
       } catch (err) {
         this.logger.error(`Claude Code summarize failed: ${err instanceof Error ? err.message : err}`);
@@ -78,7 +80,9 @@ export class ClaudeService {
     args: ExtractStructuredArgs<T>,
   ): Promise<{ data: T; modelUsed: string }> {
     const ctx = await this.factory.getContext(userId);
-    const model = args.model === 'deep' ? ctx.modelDeep : ctx.modelFast;
+    const isDeep = args.model === 'deep';
+    const model = isDeep ? ctx.modelDeep : ctx.modelFast;
+    const effort = isDeep ? ctx.effortDeep : ctx.effortFast;
 
     if (ctx.provider === 'claude_code') {
       try {
@@ -91,6 +95,7 @@ export class ClaudeService {
           system: systemWithSchema,
           user: args.user,
           model,
+          effort,
         });
         const parsed = args.schema.safeParse(raw);
         if (!parsed.success) {

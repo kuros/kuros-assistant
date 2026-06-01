@@ -25,11 +25,14 @@ export interface UpdateMeRequest {
 }
 
 export type AiProvider = 'api' | 'claude_code';
+export type ClaudeEffort = 'low' | 'medium' | 'high';
 
 export interface UserSettingsDto {
   hasAnthropicKey: boolean;
   claudeModelFast: string;
   claudeModelDeep: string;
+  claudeEffortFast: ClaudeEffort;
+  claudeEffortDeep: ClaudeEffort;
   aiProvider: AiProvider;
 }
 
@@ -37,6 +40,8 @@ export interface UpdateUserSettingsRequest {
   anthropicApiKey?: string;
   claudeModelFast?: string;
   claudeModelDeep?: string;
+  claudeEffortFast?: ClaudeEffort;
+  claudeEffortDeep?: ClaudeEffort;
   aiProvider?: AiProvider;
 }
 

@@ -14,6 +14,7 @@ import {
   FormLabel,
   IconButton,
   InputAdornment,
+  MenuItem,
   Radio,
   RadioGroup,
   Snackbar,
@@ -30,8 +31,12 @@ const schema = z.object({
   anthropicApiKey: z.string().optional(),
   claudeModelFast: z.string().min(1, 'Required'),
   claudeModelDeep: z.string().min(1, 'Required'),
+  claudeEffortFast: z.enum(['low', 'medium', 'high']),
+  claudeEffortDeep: z.enum(['low', 'medium', 'high']),
   aiProvider: z.enum(['api', 'claude_code']),
 });
+
+const EFFORT_OPTIONS = ['low', 'medium', 'high'] as const;
 type FormValues = z.infer<typeof schema>;
 
 export function AiSettingsPage() {
@@ -54,6 +59,8 @@ export function AiSettingsPage() {
       anthropicApiKey: '',
       claudeModelFast: '',
       claudeModelDeep: '',
+      claudeEffortFast: 'low',
+      claudeEffortDeep: 'high',
       aiProvider: 'api',
     },
   });
@@ -67,6 +74,8 @@ export function AiSettingsPage() {
         anthropicApiKey: '',
         claudeModelFast: settings.claudeModelFast,
         claudeModelDeep: settings.claudeModelDeep,
+        claudeEffortFast: settings.claudeEffortFast,
+        claudeEffortDeep: settings.claudeEffortDeep,
         aiProvider: settings.aiProvider,
       });
       resetTest();
@@ -80,10 +89,14 @@ export function AiSettingsPage() {
       anthropicApiKey?: string;
       claudeModelFast: string;
       claudeModelDeep: string;
+      claudeEffortFast: 'low' | 'medium' | 'high';
+      claudeEffortDeep: 'low' | 'medium' | 'high';
       aiProvider: 'api' | 'claude_code';
     } = {
       claudeModelFast: values.claudeModelFast,
       claudeModelDeep: values.claudeModelDeep,
+      claudeEffortFast: values.claudeEffortFast,
+      claudeEffortDeep: values.claudeEffortDeep,
       aiProvider: values.aiProvider,
     };
     if (values.anthropicApiKey && values.anthropicApiKey.length > 0) {
@@ -94,6 +107,8 @@ export function AiSettingsPage() {
       anthropicApiKey: '',
       claudeModelFast: values.claudeModelFast,
       claudeModelDeep: values.claudeModelDeep,
+      claudeEffortFast: values.claudeEffortFast,
+      claudeEffortDeep: values.claudeEffortDeep,
       aiProvider: values.aiProvider,
     });
     setSaved(true);
@@ -172,12 +187,58 @@ export function AiSettingsPage() {
           helperText={errors.claudeModelFast?.message ?? 'Used for summaries and extraction (e.g. claude-sonnet-4-6)'}
           fullWidth
         />
+        <Controller
+          name="claudeEffortFast"
+          control={control}
+          render={({ field }) => (
+            <TextField
+              {...field}
+              select
+              label="Fast effort"
+              error={!!errors.claudeEffortFast}
+              helperText={
+                errors.claudeEffortFast?.message ??
+                'Reasoning effort for the fast tier — lower spends fewer tokens'
+              }
+              fullWidth
+            >
+              {EFFORT_OPTIONS.map((opt) => (
+                <MenuItem key={opt} value={opt}>
+                  {opt}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+        />
         <TextField
           label="Deep model"
           {...register('claudeModelDeep')}
           error={!!errors.claudeModelDeep}
           helperText={errors.claudeModelDeep?.message ?? 'Used for insights (e.g. claude-opus-4-7)'}
           fullWidth
+        />
+        <Controller
+          name="claudeEffortDeep"
+          control={control}
+          render={({ field }) => (
+            <TextField
+              {...field}
+              select
+              label="Deep effort"
+              error={!!errors.claudeEffortDeep}
+              helperText={
+                errors.claudeEffortDeep?.message ??
+                'Reasoning effort for the deep tier — higher spends more tokens for better quality'
+              }
+              fullWidth
+            >
+              {EFFORT_OPTIONS.map((opt) => (
+                <MenuItem key={opt} value={opt}>
+                  {opt}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
         />
         <Button
           type="submit"
