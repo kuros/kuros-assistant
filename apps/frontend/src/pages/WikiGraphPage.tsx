@@ -56,8 +56,8 @@ export function WikiGraphPage(): JSX.Element {
   const [forces, setForces] = useState<GraphForces>(DEFAULT_FORCES);
   const [panelOpen, setPanelOpen] = useState(true);
   const [hovered, setHovered] = useState<WikiGraphNode | null>(null);
-  const [stats, setStats] = useState({ nodes: 0, links: 0 });
-  const onStats = useCallback((s: { nodes: number; links: number }) => setStats(s), []);
+  const [stats, setStats] = useState({ nodes: 0, links: 0, matches: 0 });
+  const onStats = useCallback((s: { nodes: number; links: number; matches: number }) => setStats(s), []);
 
   const toggle = (key: keyof Omit<GraphFilters, 'search'>) => (
     <Switch size="small" checked={filters[key]} onChange={(e) => setFilters({ ...filters, [key]: e.target.checked })} />
@@ -106,6 +106,9 @@ export function WikiGraphPage(): JSX.Element {
               placeholder="Search pages…"
               value={filters.search}
               onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              helperText={
+                filters.search.trim() ? `${stats.matches} match${stats.matches === 1 ? '' : 'es'} highlighted` : undefined
+              }
             />
             <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
               Filters

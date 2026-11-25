@@ -270,7 +270,6 @@ export function WikiGraph({
     });
     return { nodes: outNodes, links: links.map((l) => ({ ...l })) as GLink[] };
     // Search highlights rather than filters, so it's deliberately not a dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, filters.showSources, filters.showDaily, filters.showAnswers, filters.showOrphans, filters.showUnresolved, focus, depth]);
 
   // Search highlights matches and dims the rest (as Obsidian does) instead of
