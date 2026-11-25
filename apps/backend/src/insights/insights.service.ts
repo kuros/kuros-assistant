@@ -64,6 +64,7 @@ export class InsightsService {
     const summaries = await this.summaries.find({
       where: {
         userId: args.userId,
+        kind: 'daily',
         periodStart: Between(args.from, args.to),
       },
       order: { periodStart: 'ASC' },

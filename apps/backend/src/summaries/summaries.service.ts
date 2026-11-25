@@ -31,7 +31,6 @@ export class SummariesService {
     userId: string;
     kind: SummaryKind;
     date?: string;
-    isoWeek?: string;
     connectorId?: string;
     targetId?: string;
   }): Promise<SummariesResponse> {
@@ -42,14 +41,8 @@ export class SummariesService {
 
     const rows = await this.repo.find({ where, order: { periodStart: 'DESC' } });
 
-    let filtered = rows;
-    if (args.kind === 'weekly' && args.isoWeek) {
-      // file path embeds the iso week token
-      filtered = rows.filter((r) => r.filePath.includes(`/${args.isoWeek}.md`));
-    }
-
     const markdownByPath: Record<string, string> = {};
-    for (const r of filtered) {
+    for (const r of rows) {
       try {
         markdownByPath[r.filePath] = await this.storage.read(r.filePath);
       } catch {
@@ -57,7 +50,7 @@ export class SummariesService {
       }
     }
     return {
-      summaries: filtered.map((r) => this.toDto(r)),
+      summaries: rows.map((r) => this.toDto(r)),
       markdownByPath,
     };
   }

@@ -19,7 +19,14 @@ export function SideNav(): JSX.Element {
         >
           {group.items.map((item) => {
             const Icon = item.icon;
-            const selected = current === item.to || current.startsWith(item.to.split('?')[0] + '?') ;
+            const base = item.to.split('?')[0];
+            const moreSpecific = group.items.some(
+              (o) => o !== item && o.to.startsWith(base + '/') && loc.pathname.startsWith(o.to.split('?')[0]),
+            );
+            const selected =
+              current === item.to ||
+              current.startsWith(base + '?') ||
+              (!item.to.includes('?') && loc.pathname.startsWith(base + '/') && !moreSpecific);
             return (
               <ListItemButton
                 key={item.label}

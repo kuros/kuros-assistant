@@ -2,8 +2,20 @@ import type { UserContext } from './user-context';
 import { formatTeams } from './user-context';
 
 export const dailySummaryPrompt = {
-  system: (args: { date: string; sourceLabel: string; userCtx: UserContext }): string => {
+  /**
+   * `sources`: when the input combines several channels/projects of one connector, their names.
+   * The summary then merges cross-channel topics and tags each item with where it came from.
+   */
+  system: (args: { date: string; sourceLabel: string; userCtx: UserContext; sources?: string[] }): string => {
     const teams = formatTeams(args.userCtx);
+    const multi = (args.sources?.length ?? 0) > 1;
+    const sourceRules = multi
+      ? `
+- The input combines ${args.sources!.length} sources (${args.sources!.join(', ')}), each under a "## Source:" header.
+  Treat it as one day: merge a topic discussed in several sources into one item, and after every heading-3 add the
+  source name(s) in square brackets, e.g. "### Release freeze [#eng-lobby, #proddev]".
+- Give quiet sources the same care as busy ones; do not drop a source's important item because another source is louder.`
+      : '';
     return `You are a precise executive assistant summarizing a single day of communication for ${args.userCtx.name}.
 
 Output strict GitHub-flavored markdown with these sections, in order:
@@ -38,7 +50,7 @@ Rules:
 - Do not invent facts.
 - Quote sparingly; prefer paraphrase.
 - Use first names only when referring to people.
-- Use Names instead of ids
+- Use Names instead of ids${sourceRules}
 - If the input is empty or only auto-generated noise, return only "# Daily summary — ${args.date} — ${args.sourceLabel}\\n\\n_No substantive activity._"`;
   },
 

@@ -23,6 +23,6 @@ Bullets phrased as recommendations.`,
     corpus: string;
   }): string => `Period: ${args.periodStart} to ${args.periodEnd}. Scope: ${args.scopeLabel}.
 
-Corpus (each entry is a daily or weekly summary):
+Corpus (each entry is a daily summary):
 ${args.corpus}`,
 };

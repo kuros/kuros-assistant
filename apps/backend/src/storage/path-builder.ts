@@ -14,8 +14,6 @@ export const paths = {
     `users/${userId}/${kind}/raw/${targetId}/${formatISODate(day)}.jsonl`,
   dailySummary: (userId: string, kind: ConnectorKind, targetId: string, day: Date) =>
     `users/${userId}/${kind}/daily/${targetId}/${formatISODate(day)}.md`,
-  weeklySummary: (userId: string, kind: ConnectorKind, targetId: string, isoWeek: string) =>
-    `users/${userId}/${kind}/weekly/${targetId}/${isoWeek}.md`,
   insight: (
     userId: string,
     scope: InsightScope,

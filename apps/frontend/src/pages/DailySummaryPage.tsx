@@ -20,9 +20,13 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { addDays, format, parseISO } from 'date-fns';
 import type { ConnectorDto, SummaryDto } from '@kuros/shared';
+import { COMBINED_TARGET_ID } from '../api/constants';
 import { useDailySummaries, useGenerateDailySummaries } from '../api/hooks/summaries';
 import { useConnectors, useSyncAllConnectors } from '../api/hooks/connectors';
 import { EmptyState } from '../components/EmptyState';
+import { SummaryBackfillDialog } from '../components/SummaryBackfill';
+import HistoryIcon from '@mui/icons-material/History';
+import { useState } from 'react';
 
 const KIND_LABEL: Record<string, string> = { slack: 'Slack', outlook: 'Outlook', jira: 'Jira' };
 
@@ -39,6 +43,7 @@ export function DailySummaryPage(): JSX.Element {
   const connectorsQ = useConnectors();
   const syncAll = useSyncAllConnectors();
   const generate = useGenerateDailySummaries();
+  const [backfillOpen, setBackfillOpen] = useState(false);
 
   const connectorMap = new Map<string, ConnectorDto>(
     (connectorsQ.data ?? []).map((c) => [c.id, c]),
@@ -80,6 +85,9 @@ export function DailySummaryPage(): JSX.Element {
           </Stack>
         </Stack>
         <Stack direction="row" spacing={1}>
+          <Button startIcon={<HistoryIcon />} variant="outlined" size="small" onClick={() => setBackfillOpen(true)}>
+            Summarize missing days
+          </Button>
           <Button
             startIcon={<SyncIcon />}
             variant="outlined"
@@ -100,6 +108,8 @@ export function DailySummaryPage(): JSX.Element {
           </Button>
         </Stack>
       </Stack>
+
+      <SummaryBackfillDialog open={backfillOpen} onClose={() => setBackfillOpen(false)} />
 
       {q.isLoading && <Typography>Loading…</Typography>}
       {q.data && grouped.size === 0 && (
@@ -137,7 +147,7 @@ export function DailySummaryPage(): JSX.Element {
                   {summaries.map((s) => (
                     <Box key={s.id}>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                        {s.targetId}
+                        {s.targetId === COMBINED_TARGET_ID ? 'All channels' : s.targetId}
                       </Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
                         {previewMarkdown(q.data!.markdownByPath[s.filePath] ?? '')}

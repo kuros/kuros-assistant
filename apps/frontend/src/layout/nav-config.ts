@@ -2,7 +2,6 @@ import TodayIcon from '@mui/icons-material/Today';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ArchiveIcon from '@mui/icons-material/Archive';
-import CalendarViewWeekIcon from '@mui/icons-material/CalendarViewWeek';
 import PersonIcon from '@mui/icons-material/Person';
 import GroupsIcon from '@mui/icons-material/Groups';
 import PeopleIcon from '@mui/icons-material/People';
@@ -10,6 +9,10 @@ import WorkspacesIcon from '@mui/icons-material/Workspaces';
 import CableIcon from '@mui/icons-material/Cable';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import QuestionAnswerOutlinedIcon from '@mui/icons-material/QuestionAnswerOutlined';
+import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
 
 export interface NavItem {
@@ -33,8 +36,13 @@ export const nav: NavGroup[] = [
     ],
   },
   {
-    group: 'This week',
-    items: [{ label: 'Weekly summary', to: '/weekly', icon: CalendarViewWeekIcon }],
+    group: 'Knowledge',
+    items: [
+      { label: 'Highlights', to: '/knowledge', icon: AutoAwesomeIcon },
+      { label: 'Ask', to: '/knowledge/ask', icon: QuestionAnswerOutlinedIcon },
+      { label: 'Wiki', to: '/knowledge/wiki', icon: MenuBookOutlinedIcon },
+      { label: 'Graph', to: '/knowledge/graph', icon: HubOutlinedIcon },
+    ],
   },
   {
     group: 'Directory',

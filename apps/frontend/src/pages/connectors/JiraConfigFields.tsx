@@ -3,6 +3,7 @@ import {
   AccordionDetails,
   AccordionSummary,
   Box,
+  Button,
   Divider,
   Stack,
   TextField,
@@ -39,8 +40,10 @@ function SetupSteps() {
   );
 }
 
+const INVOLVING_ME = 'assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()';
+
 export function JiraConfigFields(): JSX.Element {
-  const { control, register } = useFormContext();
+  const { control, register, setValue } = useFormContext();
   return (
     <Stack spacing={2}>
       <SetupSteps />
@@ -88,6 +91,40 @@ export function JiraConfigFields(): JSX.Element {
           />
         )}
       />
+      <Divider />
+      <Typography variant="body2" fontWeight={600}>
+        Which issues to sync
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        By default every issue updated in these projects is synced and summarised, which can be hundreds a day. Narrow it
+        with a JQL filter to cut summary cost. It is added to the project query as <code>AND (…)</code> and applies to
+        future syncs. Use <strong>Test</strong> after saving to check it.
+      </Typography>
+      <Controller
+        control={control}
+        name="config.jqlFilter"
+        render={({ field }) => (
+          <TextField
+            label="JQL filter (optional)"
+            fullWidth
+            multiline
+            minRows={2}
+            placeholder={INVOLVING_ME}
+            helperText="Leave empty to sync every updated issue. Don't include ORDER BY."
+            value={field.value ?? ''}
+            onChange={(e) => field.onChange(e.target.value)}
+            InputProps={{ sx: { fontFamily: 'monospace', fontSize: 13 } }}
+          />
+        )}
+      />
+      <Stack direction="row" spacing={1}>
+        <Button size="small" variant="outlined" onClick={() => setValue('config.jqlFilter', INVOLVING_ME, { shouldDirty: true })}>
+          Only issues involving me
+        </Button>
+        <Button size="small" onClick={() => setValue('config.jqlFilter', '', { shouldDirty: true })}>
+          Sync everything
+        </Button>
+      </Stack>
     </Stack>
   );
 }

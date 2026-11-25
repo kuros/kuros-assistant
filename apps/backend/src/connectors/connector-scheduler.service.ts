@@ -1,9 +1,9 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { toZonedTime } from 'date-fns-tz';
-import { format, startOfISOWeek, endOfISOWeek, subWeeks, setISOWeek, setISOWeekYear } from 'date-fns';
+import { format } from 'date-fns';
 import { ConnectorEntity } from '../entities/connector.entity';
 import { ConnectorSyncStateEntity } from '../entities/connector-sync-state.entity';
 import { SummaryEntity } from '../entities/summary.entity';
@@ -13,15 +13,15 @@ import { TeamEntity } from '../entities/team.entity';
 import { TeamMemberEntity } from '../entities/team-member.entity';
 import { ConnectorRegistry } from './connector.registry';
 import { STORAGE, type StorageService } from '../storage/storage.service';
-import { paths, formatISODate, formatISOWeek } from '../storage/path-builder';
+import { paths } from '../storage/path-builder';
 import type { RawItem } from './connector.interface';
-import { SINGLE_USER_ID } from '@kuros/shared';
+import { COMBINED_TARGET_ID, SINGLE_USER_ID } from '@kuros/shared';
 import { UserSettingsService } from '../me/user-settings.service';
 import { ClaudeService } from '../claude/claude.service';
 import { PostSummaryPipeline } from './post-summary.pipeline';
+import { SummaryEventsService } from '../events/summary-events';
 import {
   dailySummaryPrompt,
-  weeklySummaryPrompt,
   type UserContext,
 } from '../claude/prompts';
 
@@ -52,6 +52,7 @@ export class ConnectorSchedulerService {
     private readonly userSettings: UserSettingsService,
     private readonly claude: ClaudeService,
     private readonly postSummaryPipeline: PostSummaryPipeline,
+    private readonly summaryEvents: SummaryEventsService,
   ) {}
 
   private async isOnboarded(): Promise<boolean> {
@@ -222,336 +223,173 @@ export class ConnectorSchedulerService {
     await this.withMutex('dailyFanout', async () => {
       const user = await this.users.findOne({ where: { id: SINGLE_USER_ID } });
       const tz = user?.timezone ?? 'UTC';
-      const zonedNow = toZonedTime(new Date(), tz);
-      const todayStr = format(zonedNow, 'yyyy-MM-dd');
-      const today = new Date(`${todayStr}T00:00:00.000Z`);
-
-      const userCtx = await this.loadUserContext(SINGLE_USER_ID);
-      const rows = await this.connectors.find({ where: { status: 'active' } });
-      for (const c of rows) {
-        try {
-          await this.runDailySummaryForConnector(c, today, todayStr, userCtx);
-        } catch (err) {
-          this.logger.error(
-            `dailyFanout connector ${c.id} (${c.kind}) failed: ${err instanceof Error ? err.message : err}`,
-          );
-        }
-      }
+      const todayStr = format(toZonedTime(new Date(), tz), 'yyyy-MM-dd');
+      await this.generateDailySummariesForDate(SINGLE_USER_ID, todayStr, { waitOnError: true });
     });
   }
 
-  private async runDailySummaryForConnector(
-    c: ConnectorEntity,
-    day: Date,
-    dateStr: string,
-    userCtx: UserContext,
+  /**
+   * Summarises every active connector of the user for one day, then hands the day's summaries
+   * to the knowledge base as one batch (so the wiki ingests the day in a single pass).
+   */
+  async generateDailySummariesForDate(
+    userId: string,
+    date: string,
+    opts: { waitOnError?: boolean } = {},
   ): Promise<void> {
-    const connector = this.registry.get(c.kind);
-    const targets = await connector.listTargets(c.id);
-
-    for (const targetId of targets) {
+    const userCtx = await this.loadUserContext(userId);
+    const rows = await this.connectors.find({ where: { userId, status: 'active' } });
+    const saved: SavedDailySummary[] = [];
+    for (const c of rows) {
       const started = Date.now();
       try {
-        const rawPath = paths.rawJsonl(c.userId, c.kind, targetId, day);
-        if (!(await this.storage.exists(rawPath))) {
-          this.logger.log({ job: 'dailyFanout', connectorId: c.id, targetId, date: dateStr, status: 'no_data' });
-          continue;
-        }
-
-        const raw = await this.storage.read(rawPath);
-        const rawItems: RawItem[] = raw
-          .trim()
-          .split('\n')
-          .filter(Boolean)
-          .map((line) => JSON.parse(line) as RawItem);
-
-        const items = this.dedupeLatestById(rawItems);
-
-        if (items.length === 0) continue;
-
-        const sourceLabel = await connector.labelForTarget(c.id, targetId);
-        const { text, modelUsed } = await this.claude.summarize(c.userId, {
-          system: dailySummaryPrompt.system({ date: dateStr, sourceLabel, userCtx }),
-          user: dailySummaryPrompt.user({
-            userCtx,
-            sourceLabel,
-            date: dateStr,
-            items: items.map((it) => it.text).join('\n\n---\n\n'),
-          }),
-        });
-
-        const filePath = paths.dailySummary(c.userId, c.kind, targetId, day);
-        await this.storage.write(filePath, text);
-
-        let summary = await this.summaries.findOne({
-          where: { userId: c.userId, connectorId: c.id, targetId, kind: 'daily', periodStart: dateStr },
-        });
-        if (!summary) {
-          summary = this.summaries.create({
-            userId: c.userId,
-            connectorId: c.id,
-            targetId,
-            kind: 'daily',
-            periodStart: dateStr,
-            periodEnd: dateStr,
-          });
-        }
-        summary.filePath = filePath;
-        summary.itemCount = items.length;
-        summary.modelUsed = modelUsed;
-        const saved = await this.summaries.save(summary);
-
-        await this.postSummaryPipeline.run({
-          summary: saved,
-          sourceLabel,
-          period: dateStr,
-          userId: c.userId,
-          day,
-          userCtx,
-        });
-
+        const r = await this.summarizeConnectorDay(c, date, userCtx);
+        if (r) saved.push(r);
         this.logger.log({
-          job: 'dailyFanout', connectorId: c.id, targetId, date: dateStr,
-          items: items.length, durationMs: Date.now() - started, ok: true,
-        });
-
-      } catch (err) {
-        this.logger.error({
-          job: 'dailyFanout', connectorId: c.id, targetId, date: dateStr,
-          durationMs: Date.now() - started, ok: false,
-          error: err instanceof Error ? err.message : err,
-        });
-        this.logger.log('Wait for 60 sec')
-        await wait(60000);
-      }
-    }
-  }
-
-
-  @Cron('0 21 * * 1')
-  async weeklyFanout(): Promise<void> {
-    if (!(await this.isOnboarded())) {
-      this.logger.log({ job: 'weeklyFanout', status: 'awaiting_onboarding' });
-      return;
-    }
-    if (!(await this.isAiConfigured())) {
-      this.logger.warn('weeklyFanout: skipping — AI provider not configured (set API key or switch to Claude Code in AI Settings)');
-      return;
-    }
-    await this.withMutex('weeklyFanout', async () => {
-      const lastWeekDate = subWeeks(new Date(), 1);
-      const weekStart = startOfISOWeek(lastWeekDate);
-      const weekEnd = endOfISOWeek(lastWeekDate);
-      const isoWeek = formatISOWeek(lastWeekDate);
-      const weekStartStr = formatISODate(weekStart);
-      const weekEndStr = formatISODate(weekEnd);
-
-      const userCtx = await this.loadUserContext(SINGLE_USER_ID);
-      const rows = await this.connectors.find({ where: { status: 'active' } });
-      for (const c of rows) {
-        try {
-          await this.runWeeklySummaryForConnector(c, isoWeek, weekStartStr, weekEndStr, weekStart, userCtx);
-        } catch (err) {
-          this.logger.error(
-            `weeklyFanout connector ${c.id} (${c.kind}) failed: ${err instanceof Error ? err.message : err}`,
-          );
-        }
-      }
-    });
-  }
-
-  private async runWeeklySummaryForConnector(
-    c: ConnectorEntity,
-    isoWeek: string,
-    weekStartStr: string,
-    weekEndStr: string,
-    weekStart: Date,
-    userCtx: UserContext,
-  ): Promise<void> {
-    const connector = this.registry.get(c.kind);
-    const targets = await connector.listTargets(c.id);
-
-    for (const targetId of targets) {
-      const started = Date.now();
-      try {
-        const dailySummaries = await this.summaries.find({
-          where: {
-            userId: c.userId,
-            connectorId: c.id,
-            targetId,
-            kind: 'daily',
-            periodStart: Between(weekStartStr, weekEndStr),
-          },
-          order: { periodStart: 'ASC' },
-        });
-
-        if (dailySummaries.length === 0) {
-          this.logger.log({ job: 'weeklyFanout', connectorId: c.id, targetId, week: isoWeek, status: 'no_dailies' });
-          continue;
-        }
-
-        const markdowns = await Promise.all(
-          dailySummaries.map(async (s) => {
-            try { return await this.storage.read(s.filePath); } catch { return ''; }
-          }),
-        );
-        const dailiesText = markdowns.filter(Boolean).join('\n\n---\n\n');
-
-        const sourceLabel = await connector.labelForTarget(c.id, targetId);
-        const { text, modelUsed } = await this.claude.summarize(c.userId, {
-          system: weeklySummaryPrompt.system({ isoWeek, sourceLabel, userCtx }),
-          user: weeklySummaryPrompt.user({
-            userCtx,
-            sourceLabel,
-            isoWeek,
-            periodStart: weekStartStr,
-            periodEnd: weekEndStr,
-            dailies: dailiesText,
-          }),
-        });
-
-        const filePath = paths.weeklySummary(c.userId, c.kind, targetId, isoWeek);
-        await this.storage.write(filePath, text);
-
-        let summary = await this.summaries.findOne({
-          where: { userId: c.userId, connectorId: c.id, targetId, kind: 'weekly', periodStart: weekStartStr },
-        });
-        if (!summary) {
-          summary = this.summaries.create({
-            userId: c.userId,
-            connectorId: c.id,
-            targetId,
-            kind: 'weekly',
-            periodStart: weekStartStr,
-            periodEnd: weekEndStr,
-          });
-        }
-        summary.filePath = filePath;
-        summary.itemCount = dailySummaries.reduce((acc, s) => acc + s.itemCount, 0);
-        summary.modelUsed = modelUsed;
-        await this.summaries.save(summary);
-
-        this.logger.log({
-          job: 'weeklyFanout', connectorId: c.id, targetId, week: isoWeek,
-          dailies: dailySummaries.length, durationMs: Date.now() - started, ok: true,
+          job: 'dailySummary', connectorId: c.id, date, ok: true,
+          status: r ? 'summarised' : 'no_data', durationMs: Date.now() - started,
         });
       } catch (err) {
         this.logger.error({
-          job: 'weeklyFanout', connectorId: c.id, targetId, week: isoWeek,
-          durationMs: Date.now() - started, ok: false,
+          job: 'dailySummary', connectorId: c.id, date, ok: false, durationMs: Date.now() - started,
           error: err instanceof Error ? err.message : err,
         });
+        if (opts.waitOnError) {
+          // Back off before the next connector in case we were rate limited.
+          await wait(60000);
+        }
       }
     }
+    this.emitSummaries(userId, saved);
   }
 
-  async generateDailySummariesForDate(userId: string, date: string): Promise<void> {
-    const userCtx = await this.loadUserContext(userId);
-    const day = new Date(`${date}T00:00:00.000Z`);
-    const rows = await this.connectors.find({ where: { userId, status: 'active' } });
-    for (const c of rows) {
-      try {
-        await this.runDailySummaryForConnector(c, day, date, userCtx);
-      } catch (err) {
-        this.logger.error(
-          `generateDailySummariesForDate connector=${c.id} date=${date}: ${err instanceof Error ? err.message : err}`,
-        );
-      }
-    }
-  }
-
-  async generateWeeklySummariesForWeek(userId: string, isoWeek: string): Promise<void> {
-    const match = /^(\d{4})-W(\d{2})$/.exec(isoWeek);
-    if (!match) throw new Error(`Invalid ISO week: ${isoWeek}`);
-    const year = Number(match[1]);
-    const week = Number(match[2]);
-    const anchor = setISOWeek(setISOWeekYear(new Date(Date.UTC(year, 0, 4)), year), week);
-    const weekStart = startOfISOWeek(anchor);
-    const weekEnd = endOfISOWeek(anchor);
-    const weekStartStr = formatISODate(weekStart);
-    const weekEndStr = formatISODate(weekEnd);
-
-    const userCtx = await this.loadUserContext(userId);
-    const rows = await this.connectors.find({ where: { userId, status: 'active' } });
-    for (const c of rows) {
-      try {
-        await this.runWeeklySummaryForConnector(c, isoWeek, weekStartStr, weekEndStr, weekStart, userCtx);
-      } catch (err) {
-        this.logger.error(
-          `generateWeeklySummariesForWeek connector=${c.id} week=${isoWeek}: ${err instanceof Error ? err.message : err}`,
-        );
-      }
-    }
-  }
-
+  /**
+   * (Re)generates one connector's combined summary for a day. With `emit: false` the caller is
+   * responsible for handing it to the knowledge base (the backfill batches a whole day).
+   */
   async generateDailySummaryFor(args: {
     userId: string;
     connectorId: string;
-    targetId: string;
     date: string;
-  }): Promise<SummaryEntity> {
+    emit?: boolean;
+  }): Promise<SavedDailySummary> {
     const c = await this.connectors.findOne({ where: { id: args.connectorId, userId: args.userId } });
     if (!c) throw new Error(`Connector not found: ${args.connectorId}`);
-
     const userCtx = await this.loadUserContext(args.userId);
-    const day = new Date(`${args.date}T00:00:00.000Z`);
+    const r = await this.summarizeConnectorDay(c, args.date, userCtx);
+    if (!r) throw new Error(`No synced data for ${c.name} on ${args.date}`);
+    if (args.emit ?? true) this.emitSummaries(args.userId, [r]);
+    return r;
+  }
 
+  emitSummaries(userId: string, saved: SavedDailySummary[]): void {
+    this.summaryEvents.emitSaved({
+      userId,
+      summaryIds: saved.map((r) => r.summary.id),
+      labels: Object.fromEntries(saved.map((r) => [r.summary.id, r.sourceLabel])),
+    });
+  }
+
+  /**
+   * One combined daily summary per connector: every channel/project with data that day goes
+   * into a single LLM call (as labelled sections), instead of one call per target. Small
+   * channels no longer pay the full per-call overhead, and cross-channel topics get merged.
+   *
+   * Supersedes any older per-target summaries of that connector-day. Returns null if no data.
+   */
+  private async summarizeConnectorDay(
+    c: ConnectorEntity,
+    dateStr: string,
+    userCtx: UserContext,
+  ): Promise<SavedDailySummary | null> {
+    const day = new Date(`${dateStr}T00:00:00.000Z`);
     const connector = this.registry.get(c.kind);
-    const rawPath = paths.rawJsonl(args.userId, c.kind, args.targetId, day);
-    if (!(await this.storage.exists(rawPath))) {
-      throw new Error(`No raw data for date=${args.date} target=${args.targetId}`);
+    // De-dupe: a target listed twice in config would otherwise be summarised (and paid for) twice.
+    const targets = [...new Set(await connector.listTargets(c.id))];
+
+    const sections: Array<{ label: string; items: RawItem[] }> = [];
+    for (const targetId of targets) {
+      const rawPath = paths.rawJsonl(c.userId, c.kind, targetId, day);
+      if (!(await this.storage.exists(rawPath))) continue;
+      const raw = await this.storage.read(rawPath);
+      const items = this.dedupeLatestById(
+        raw
+          .split('\n')
+          .filter((l) => l.trim())
+          .map((line) => JSON.parse(line) as RawItem),
+      );
+      if (items.length === 0) continue;
+      const label = await connector.labelForTarget(c.id, targetId).catch(() => targetId);
+      sections.push({ label, items });
     }
+    if (sections.length === 0) return null;
 
-    const raw = await this.storage.read(rawPath);
-    const rawItems: RawItem[] = raw
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as RawItem);
+    const multi = sections.length > 1;
+    const sourceLabel = multi ? c.name : sections[0].label;
+    const itemsText = sections
+      .map((sec) => {
+        const body = sec.items.map((it) => it.text).join('\n\n---\n\n');
+        return multi ? `## Source: ${sec.label} (${sec.items.length} items)\n\n${body}` : body;
+      })
+      .join('\n\n');
+    const itemCount = sections.reduce((n, sec) => n + sec.items.length, 0);
 
-    const items = this.dedupeLatestById(rawItems);
-
-    const sourceLabel = await connector.labelForTarget(c.id, args.targetId);
-    const { text, modelUsed } = await this.claude.summarize(args.userId, {
-      system: dailySummaryPrompt.system({ date: args.date, sourceLabel, userCtx }),
-      user: dailySummaryPrompt.user({
-        userCtx,
+    const { text, modelUsed } = await this.claude.summarize(c.userId, {
+      system: dailySummaryPrompt.system({
+        date: dateStr,
         sourceLabel,
-        date: args.date,
-        items: items.map((it) => it.text).join('\n\n---\n\n'),
+        userCtx,
+        sources: sections.map((sec) => sec.label),
       }),
+      user: dailySummaryPrompt.user({ userCtx, sourceLabel, date: dateStr, items: itemsText }),
     });
 
-    const filePath = paths.dailySummary(args.userId, c.kind, args.targetId, day);
+    const filePath = paths.dailySummary(c.userId, c.kind, COMBINED_TARGET_ID, day);
     await this.storage.write(filePath, text);
 
     let summary = await this.summaries.findOne({
-      where: { userId: args.userId, connectorId: c.id, targetId: args.targetId, kind: 'daily', periodStart: args.date },
+      where: { userId: c.userId, connectorId: c.id, targetId: COMBINED_TARGET_ID, kind: 'daily', periodStart: dateStr },
     });
     if (!summary) {
       summary = this.summaries.create({
-        userId: args.userId,
+        userId: c.userId,
         connectorId: c.id,
-        targetId: args.targetId,
+        targetId: COMBINED_TARGET_ID,
         kind: 'daily',
-        periodStart: args.date,
-        periodEnd: args.date,
+        periodStart: dateStr,
+        periodEnd: dateStr,
       });
     }
     summary.filePath = filePath;
-    summary.itemCount = items.length;
+    summary.itemCount = itemCount;
     summary.modelUsed = modelUsed;
     const saved = await this.summaries.save(summary);
+
+    // Older per-channel summaries of this day are replaced by the combined one.
+    const superseded = await this.summaries.find({
+      where: { userId: c.userId, connectorId: c.id, kind: 'daily', periodStart: dateStr, targetId: Not(COMBINED_TARGET_ID) },
+      select: ['id'],
+    });
 
     await this.postSummaryPipeline.run({
       summary: saved,
       sourceLabel,
-      period: args.date,
-      userId: args.userId,
+      period: dateStr,
+      userId: c.userId,
       day,
       userCtx,
+      replacedSummaryIds: superseded.map((r) => r.id),
     });
 
-    return saved;
+    if (superseded.length) {
+      // Action items/risks keep existing (FK is SET NULL); their markdown files stay on disk.
+      await this.summaries.delete({ id: In(superseded.map((r) => r.id)) });
+    }
+    return { summary: saved, sourceLabel };
   }
+}
+
+export interface SavedDailySummary {
+  summary: SummaryEntity;
+  sourceLabel: string;
 }

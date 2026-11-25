@@ -69,7 +69,13 @@ export class JiraConnector extends Connector implements OnModuleInit {
     const client = new JiraClient(cfg.baseUrl, cfg.email, cfg.apiToken);
     try {
       const me = await client.myself();
-      return { ok: true, message: `Connected as ${me.displayName} (${me.emailAddress})` };
+      let filterNote = '';
+      if (cfg.jqlFilter?.trim()) {
+        // Run the filter once so a JQL typo surfaces here rather than in the background sync.
+        const page = await client.searchIssues(cfg.projectKeys[0], null, null, cfg.jqlFilter);
+        filterNote = ` · filter OK: ${page.issues.length}${page.isLast ? '' : '+'} issue(s) in ${cfg.projectKeys[0]} updated in the last week match`;
+      }
+      return { ok: true, message: `Connected as ${me.displayName} (${me.emailAddress})${filterNote}` };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
@@ -99,7 +105,7 @@ export class JiraConnector extends Connector implements OnModuleInit {
     // Subsequent syncs: start from the cursor date (JQL requires "YYYY-MM-DD").
     const jqlDate = args.sinceCursor ? args.sinceCursor.slice(0, 10) : null;
 
-    const allIssues = await client.allIssuesSince(args.targetId, jqlDate);
+    const allIssues = await client.allIssuesSince(args.targetId, jqlDate, cfg.jqlFilter);
 
     // Post-filter: skip records already processed in a previous sync.
     // The cursor is a full ISO timestamp so we can skip the already-seen portion

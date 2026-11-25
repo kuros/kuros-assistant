@@ -73,10 +73,13 @@ export class JiraClient {
     projectKey: string,
     updatedSince: string | null,
     nextPageToken: string | null = null,
+    jqlFilter?: string,
   ): Promise<{ issues: JiraIssue[]; isLast: boolean; nextPageToken?: string }> {
-    let jql = `project = "${projectKey}" AND updated >= -1w ORDER BY updated DESC`;
+    // The user's filter is wrapped in parentheses so its ORs can't escape the project/date clauses.
+    const filter = jqlFilter?.trim() ? ` AND (${jqlFilter.trim()})` : '';
+    let jql = `project = "${projectKey}" AND updated >= -1w${filter} ORDER BY updated DESC`;
     if (updatedSince) {
-      jql = `project = "${projectKey}" AND updated >= "${updatedSince}" ORDER BY updated ASC`;
+      jql = `project = "${projectKey}" AND updated >= "${updatedSince}"${filter} ORDER BY updated ASC`;
     }
     const params = new URLSearchParams({
       jql,
@@ -92,11 +95,12 @@ export class JiraClient {
   async allIssuesSince(
     projectKey: string,
     updatedSince: string | null,
+    jqlFilter?: string,
   ): Promise<JiraIssue[]> {
     const all: JiraIssue[] = [];
     let nextPageToken: string | null = null;
     for (;;) {
-      const page = await this.searchIssues(projectKey, updatedSince, nextPageToken);
+      const page = await this.searchIssues(projectKey, updatedSince, nextPageToken, jqlFilter);
       all.push(...page.issues);
       if (page.isLast || !page.nextPageToken) break;
       nextPageToken = page.nextPageToken;

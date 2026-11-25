@@ -6,3 +6,4 @@ export * from './action-item.types.js';
 export * from './risk.types.js';
 export * from './people-team.types.js';
 export * from './api.contracts.js';
+export * from './knowledge.types.js';

@@ -19,6 +19,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { addDays, format, parseISO } from 'date-fns';
+import { COMBINED_TARGET_ID } from '../api/constants';
 import { useDailySummaries, useGenerateDailySummaries, useRegenerateDailySummary } from '../api/hooks/summaries';
 import { useConnector } from '../api/hooks/connectors';
 import { MarkdownView } from '../components/MarkdownView';
@@ -103,7 +104,7 @@ export function ConnectorDailySummaryPage(): JSX.Element {
           <Accordion key={s.id} defaultExpanded>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Stack direction="row" alignItems="center" spacing={2} sx={{ flex: 1, mr: 1 }}>
-                <Typography>{s.targetId}</Typography>
+                <Typography>{s.targetId === COMBINED_TARGET_ID ? 'All channels' : s.targetId}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   {s.itemCount} items · {s.modelUsed}
                 </Typography>
@@ -114,7 +115,7 @@ export function ConnectorDailySummaryPage(): JSX.Element {
                   disabled={regenerate.isPending}
                   onClick={(e) => {
                     e.stopPropagation();
-                    regenerate.mutate({ date, connectorId: connectorId!, targetId: s.targetId });
+                    regenerate.mutate({ date, connectorId: connectorId! });
                   }}
                 >
                   Regenerate

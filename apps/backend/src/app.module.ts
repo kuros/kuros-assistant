@@ -18,6 +18,8 @@ import { RisksModule } from './risks/risks.module';
 import { PeopleTeamsModule } from './people-teams/people-teams.module';
 import { InsightsModule } from './insights/insights.module';
 import { MeModule } from './me/me.module';
+import { EventsModule } from './events/summary-events';
+import { KnowledgeModule } from './knowledge/knowledge.module';
 
 @Module({
   imports: [
@@ -27,6 +29,7 @@ import { MeModule } from './me/me.module';
     DatabaseModule,
     StorageModule,
     ClaudeModule,
+    EventsModule,
     ScheduleModule.forRoot(),
     HealthModule,
     MeModule,
@@ -40,6 +43,7 @@ import { MeModule } from './me/me.module';
     RisksModule,
     PeopleTeamsModule,
     InsightsModule,
+    KnowledgeModule,
   ],
 })
 export class AppModule {}
